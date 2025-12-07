@@ -107,10 +107,10 @@ typedef gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3,
 #include <gtsam/slam/GeneralSFMFactor.h>
 template <CAMERA, LANDMARK>
 virtual class GeneralSFMFactor : gtsam::NoiseModelFactor {
-  GeneralSFMFactor(const gtsam::Point2& measured,
+  GeneralSFMFactor(const typename CAMERA::Measurement& measured,
                    const gtsam::noiseModel::Base* model, gtsam::Key cameraKey,
                    gtsam::Key landmarkKey);
-  gtsam::Point2 measured() const;
+  typename CAMERA::Measurement measured() const;
 };
 typedef gtsam::GeneralSFMFactor<gtsam::PinholeCamera<gtsam::Cal3_S2>,
                                 gtsam::Point3>
@@ -143,6 +143,8 @@ typedef gtsam::GeneralSFMFactor<gtsam::PinholePose<gtsam::Cal3Fisheye>,
 typedef gtsam::GeneralSFMFactor<gtsam::PinholePose<gtsam::Cal3Unified>,
                                 gtsam::Point3>
     GeneralSFMFactorPoseCal3Unified;
+typedef gtsam::GeneralSFMFactor<gtsam::SphericalCamera, gtsam::Point3>
+    GeneralSFMFactorSphericalCamera;
 
 template <CALIBRATION = {gtsam::Cal3_S2, gtsam::Cal3DS2, gtsam::Cal3f, gtsam::Cal3Bundler,
                          gtsam::Cal3Fisheye, gtsam::Cal3Unified}>
