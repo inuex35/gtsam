@@ -1381,8 +1381,10 @@ typedef gtsam::PinholePose<gtsam::Cal3Fisheye> PinholePoseCal3Fisheye;
 class SphericalCamera {
   // Standard Constructors
   SphericalCamera();
-  explicit SphericalCamera(const gtsam::Pose3& pose);
-  explicit SphericalCamera(const gtsam::Vector& v);
+  SphericalCamera(const gtsam::Pose3& pose);
+  SphericalCamera(const gtsam::Pose3& pose,
+                  const gtsam::EmptyCal::shared_ptr& cal);
+  SphericalCamera(const gtsam::Vector& v);
 
   // Testable
   bool equals(const gtsam::SphericalCamera& camera, double tol = 1e-9) const;
