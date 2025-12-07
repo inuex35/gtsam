@@ -24,6 +24,7 @@
 #include <gtsam/geometry/Point2.h>
 #include <gtsam/geometry/Point3.h>
 #include <gtsam/geometry/Pose3.h>
+#include <gtsam/geometry/Unit3.h>
 #include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
 #include <gtsam/linear/BinaryJacobianFactor.h>
@@ -43,6 +44,7 @@
 #endif
 #include <iostream>
 #include <string>
+#include <optional>
 #include <type_traits>
 
 namespace boost {
@@ -52,6 +54,36 @@ class access;
 } /* namespace boost */
 
 namespace gtsam {
+
+namespace internal {
+
+template <class MEASUREMENT>
+struct MeasurementErrorHelper {
+  static constexpr int Dim = traits<MEASUREMENT>::dimension;
+  using VectorType = Eigen::Matrix<double, Dim, 1>;
+  using MatrixType = Eigen::Matrix<double, Dim, Dim>;
+
+  static VectorType Evaluate(const MEASUREMENT& measured,
+                             const MEASUREMENT& predicted,
+                             OptionalJacobian<Dim, Dim> H_predicted) {
+    if (H_predicted) *H_predicted = MatrixType::Identity();
+    VectorType diff = (predicted - measured).vector();
+    return diff;
+  }
+};
+
+template <>
+struct MeasurementErrorHelper<Unit3> {
+  static constexpr int Dim = traits<Unit3>::dimension;
+  using VectorType = Eigen::Matrix<double, Dim, 1>;
+
+  static VectorType Evaluate(const Unit3& measured, const Unit3& predicted,
+                             OptionalJacobian<Dim, Dim> H_predicted) {
+    return measured.errorVector(predicted, {}, H_predicted);
+  }
+};
+
+}  // namespace internal
 
 /**
  * Non-linear factor for a constraint derived from a 2D measurement.
@@ -145,12 +177,14 @@ public:
 
       MeasurementJacobian localJacobianStorage;
       OptionalJacobian<ZDim, ZDim> localJac(
-          (H1 || H2) ? &localJacobianStorage : nullptr);
-      Vector error = Vector(traits<Measurement>::Local(
-          measured_, predicted, OptionalJacobian<ZDim, ZDim>(), localJac));
+          (H1 || H2) ? &localJacobianStorage : std::nullopt);
+      Vector error = Vector(internal::MeasurementErrorHelper<Measurement>::Evaluate(
+          measured_, predicted, localJac));
 
-      if (H1) *H1 = localJacobianStorage * Dcamera;
-      if (H2) *H2 = localJacobianStorage * Dlandmark;
+      if (H1 && localJac) *H1 = localJacobianStorage * Dcamera;
+      if (H2 && localJac) *H2 = localJacobianStorage * Dlandmark;
+      if (H1 && !localJac) *H1 = Dcamera;
+      if (H2 && !localJac) *H2 = Dlandmark;
 
       return error;
     } catch (CheiralityException& e [[maybe_unused]]) {
@@ -177,8 +211,8 @@ public:
 
       MeasurementJacobian localJacobianStorage;
       OptionalJacobian<ZDim, ZDim> localJac(&localJacobianStorage);
-      b = Vector(traits<Measurement>::Local(
-          measured_, predicted, OptionalJacobian<ZDim, ZDim>(), localJac));
+      b = Vector(internal::MeasurementErrorHelper<Measurement>::Evaluate(
+          measured_, predicted, localJac));
 
       Dcamera = localJacobianStorage * Dcamera;
       Dlandmark = localJacobianStorage * Dlandmark;
