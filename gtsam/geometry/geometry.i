@@ -1581,8 +1581,6 @@ class CameraSet {
   void push_back(const T& cam);
 };
 
-typedef gtsam::CameraSet<gtsam::SphericalCamera> CameraSetSpherical;
-
 #include <gtsam/geometry/StereoCamera.h>
 class StereoCamera {
   // Standard Constructors and Named Constructors
@@ -1773,17 +1771,17 @@ gtsam::TriangulationResult triangulateSafe(
 
 // Spherical versions
 gtsam::Point3 triangulatePoint3(
-    const gtsam::CameraSetSpherical& cameras,
+    const gtsam::CameraSet<gtsam::SphericalCamera>& cameras,
     const gtsam::SphericalCamera::MeasurementVector& measurements,
     double rank_tol, bool optimize,
     const gtsam::SharedNoiseModel& model = nullptr,
     const bool useLOST = false);
 gtsam::Point3 triangulateNonlinear(
-    const gtsam::CameraSetSpherical& cameras,
+    const gtsam::CameraSet<gtsam::SphericalCamera>& cameras,
     const gtsam::SphericalCamera::MeasurementVector& measurements,
     const gtsam::Point3& initialEstimate);
 gtsam::TriangulationResult triangulateSafe(
-    const gtsam::CameraSetSpherical& cameras,
+    const gtsam::CameraSet<gtsam::SphericalCamera>& cameras,
     const gtsam::SphericalCamera::MeasurementVector& measurements,
     const gtsam::TriangulationParameters& params);
 

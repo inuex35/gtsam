@@ -67,8 +67,8 @@ struct MeasurementErrorHelper {
                              const MEASUREMENT& predicted,
                              OptionalJacobian<Dim, Dim> H_predicted) {
     if (H_predicted) *H_predicted = MatrixType::Identity();
-    VectorType diff = (predicted - measured).vector();
-    return diff;
+    auto local = traits<MEASUREMENT>::Local(measured, predicted);
+    return VectorType(local);
   }
 };
 
@@ -176,8 +176,9 @@ public:
           camera.project2(point, H1 ? &Dcamera : nullptr, H2 ? &Dlandmark : nullptr);
 
       MeasurementJacobian localJacobianStorage;
-      OptionalJacobian<ZDim, ZDim> localJac(
-          (H1 || H2) ? &localJacobianStorage : std::nullopt);
+      OptionalJacobian<ZDim, ZDim> localJac;
+      if (H1 || H2)
+        localJac = OptionalJacobian<ZDim, ZDim>(&localJacobianStorage);
       Vector error = Vector(internal::MeasurementErrorHelper<Measurement>::Evaluate(
           measured_, predicted, localJac));
 
