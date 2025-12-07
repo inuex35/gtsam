@@ -1377,6 +1377,41 @@ typedef gtsam::PinholePose<gtsam::Cal3Unified> PinholePoseCal3Unified;
 typedef gtsam::PinholePose<gtsam::Cal3Bundler> PinholePoseCal3Bundler;
 typedef gtsam::PinholePose<gtsam::Cal3Fisheye> PinholePoseCal3Fisheye;
 
+#include <gtsam/geometry/SphericalCamera.h>
+class SphericalCamera {
+  // Standard Constructors
+  SphericalCamera();
+  explicit SphericalCamera(const gtsam::Pose3& pose);
+  explicit SphericalCamera(const gtsam::Vector& v);
+
+  // Testable
+  bool equals(const gtsam::SphericalCamera& camera, double tol = 1e-9) const;
+  void print(const std::string& s = "SphericalCamera") const;
+
+  // Standard Interface
+  gtsam::Pose3 pose() const;
+  const gtsam::Rot3& rotation() const;
+  const gtsam::Point3& translation() const;
+
+  // Transformations and measurement functions
+  pair<gtsam::Unit3, bool> projectSafe(const gtsam::Point3& pw) const;
+  gtsam::Unit3 project(const gtsam::Point3& point) const;
+  gtsam::Unit3 project2(const gtsam::Point3& point) const;
+  gtsam::Unit3 project2(const gtsam::Unit3& pwu) const;
+  gtsam::Point3 backproject(const gtsam::Unit3& p, double depth) const;
+  gtsam::Unit3 backprojectPointAtInfinity(const gtsam::Unit3& p) const;
+  gtsam::Vector2 reprojectionError(const gtsam::Point3& point,
+                                   const gtsam::Unit3& measured) const;
+
+  // Manifold
+  gtsam::SphericalCamera retract(const gtsam::Vector6& d) const;
+  gtsam::Vector6 localCoordinates(const gtsam::SphericalCamera& p) const;
+  static gtsam::SphericalCamera Identity();
+
+  // enabling serialization functionality
+  void serialize() const;
+};
+
 #include <gtsam/geometry/Similarity2.h>
 class Similarity2 {
   // Standard Constructors
