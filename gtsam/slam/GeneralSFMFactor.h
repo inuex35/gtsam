@@ -212,7 +212,7 @@ public:
 
       MeasurementJacobian localJacobianStorage;
       OptionalJacobian<ZDim, ZDim> localJac(&localJacobianStorage);
-      b = Vector(internal::MeasurementErrorHelper<Measurement>::Evaluate(
+      b = -Vector(internal::MeasurementErrorHelper<Measurement>::Evaluate(
           measured_, predicted, localJac));
 
       Dcamera = localJacobianStorage * Dcamera;
