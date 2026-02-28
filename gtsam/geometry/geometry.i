@@ -1581,57 +1581,6 @@ class CameraSet {
   void push_back(const T& cam);
 };
 
-#include <gtsam/geometry/SphericalCamera.h>
-class EmptyCal {
-  EmptyCal();
-  static size_t Dim();
-  size_t dim() const;
-  void print(string s = "") const;
-};
-
-class SphericalCamera {
-  // Standard Constructors
-  SphericalCamera();
-  SphericalCamera(const gtsam::Pose3& pose);
-  SphericalCamera(const gtsam::Pose3& pose, const gtsam::EmptyCal* cal);
-
-  // Testable
-  void print(string s = "SphericalCamera") const;
-  bool equals(const gtsam::SphericalCamera& camera, double tol) const;
-
-  // Standard Interface
-  gtsam::Pose3 pose() const;
-  gtsam::Rot3 rotation() const;
-  gtsam::Point3 translation() const;
-  gtsam::EmptyCal calibration() const;
-
-  // Manifold
-  static size_t Dim();
-  size_t dim() const;
-  gtsam::SphericalCamera retract(gtsam::Vector d) const;
-  gtsam::Vector localCoordinates(const gtsam::SphericalCamera& p) const;
-
-  // Transformations and measurement functions
-  pair<gtsam::Unit3, bool> projectSafe(const gtsam::Point3& pw) const;
-  gtsam::Unit3 project(const gtsam::Point3& point) const;
-  gtsam::Unit3 project(const gtsam::Point3& point,
-                        Eigen::Ref<Eigen::MatrixXd> Dpose,
-                        Eigen::Ref<Eigen::MatrixXd> Dpoint) const;
-  gtsam::Unit3 project2(const gtsam::Point3& pw) const;
-  gtsam::Unit3 project2(const gtsam::Point3& pw,
-                         Eigen::Ref<Eigen::MatrixXd> Dpose,
-                         Eigen::Ref<Eigen::MatrixXd> Dpoint) const;
-  gtsam::Point3 backproject(const gtsam::Unit3& p, double depth) const;
-  gtsam::Unit3 backprojectPointAtInfinity(const gtsam::Unit3& p) const;
-  gtsam::Vector reprojectionError(const gtsam::Point3& point,
-                                   const gtsam::Unit3& measured,
-                                   Eigen::Ref<Eigen::MatrixXd> Dpose,
-                                   Eigen::Ref<Eigen::MatrixXd> Dpoint) const;
-
-  // enabling serialization functionality
-  void serialize() const;
-};
-
 #include <gtsam/geometry/StereoCamera.h>
 class StereoCamera {
   // Standard Constructors and Named Constructors
