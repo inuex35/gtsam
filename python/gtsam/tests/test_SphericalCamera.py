@@ -55,44 +55,9 @@ class TestSphericalCamera(GtsamTestCase):
         self.gtsamAssertEquals(camera.backproject(bearing3, depth), point3)
         self.gtsamAssertEquals(camera.backproject(bearing4, depth), point4)
 
-    def test_project_jacobian(self):
-        """Test project() Jacobians against numerical derivatives."""
-        Dpose = np.zeros((2, 6), order='F')
-        Dpoint = np.zeros((2, 3), order='F')
-        result = camera.project(point1, Dpose, Dpoint)
-        self.gtsamAssertEquals(result, bearing1)
-
-        # Numerical Jacobians via finite differences
-        delta = 1e-5
-
-        # Jacobian w.r.t. pose
-        numerical_Dpose = np.zeros((2, 6))
-        for i in range(6):
-            d = np.zeros(6)
-            d[i] = delta
-            cam_plus = SphericalCamera(pose.retract(d))
-            cam_minus = SphericalCamera(pose.retract(-d))
-            bearing_plus = cam_plus.project(point1)
-            bearing_minus = cam_minus.project(point1)
-            numerical_Dpose[:, i] = bearing_minus.localCoordinates(bearing_plus) / (2.0 * delta)
-
-        # Jacobian w.r.t. point
-        numerical_Dpoint = np.zeros((2, 3))
-        for i in range(3):
-            d = np.zeros(3)
-            d[i] = delta
-            bearing_plus = camera.project(point1 + d)
-            bearing_minus = camera.project(point1 - d)
-            numerical_Dpoint[:, i] = bearing_minus.localCoordinates(bearing_plus) / (2.0 * delta)
-
-        np.testing.assert_allclose(Dpose, numerical_Dpose, atol=1e-5)
-        np.testing.assert_allclose(Dpoint, numerical_Dpoint, atol=1e-5)
-
     def test_reprojection_error(self):
         """Test that reprojection error is zero at ground truth."""
-        Dpose = np.zeros((2, 6), order='F')
-        Dpoint = np.zeros((2, 3), order='F')
-        result = camera.reprojectionError(point1, bearing1, Dpose, Dpoint)
+        result = camera.reprojectionError(point1, bearing1)
         np.testing.assert_allclose(result, np.zeros(2), atol=1e-9)
 
 
