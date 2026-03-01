@@ -301,6 +301,11 @@ enum GncLossType {
   TLS /*Truncated least squares*/
 };
 
+enum GncScheduler {
+  Linear,
+  SuperLinear
+};
+
 template<PARAMS>
 virtual class GncParams {
   GncParams(const PARAMS& baseOptimizerParams);
@@ -315,6 +320,7 @@ virtual class GncParams {
   gtsam::This::IndexVector knownInliers;
   gtsam::This::IndexVector knownOutliers;
   bool allowNonNoiseModelFactors;
+  gtsam::GncScheduler scheduler;
 
   void setLossType(const gtsam::GncLossType type);
   void setMaxIterations(const size_t maxIter);
@@ -325,6 +331,7 @@ virtual class GncParams {
   void setKnownInliers(const gtsam::This::IndexVector& knownIn);
   void setKnownOutliers(const gtsam::This::IndexVector& knownOut);
   void setAllowNonNoiseModelFactors(bool allow);
+  void setScheduler(const gtsam::GncScheduler scheduler);
   void print(const string& str = "GncParams: ") const;
   
   enum Verbosity {
