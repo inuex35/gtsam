@@ -1,0 +1,284 @@
+# This workflow builds Python wheels for the feature branch.
+# Wheels are uploaded as GitHub Actions artifacts (NOT published to PyPI).
+# It can be triggered on push to the feature branch or manually via Github Actions.
+
+name: Build Python Wheels (Feature Branch)
+
+on:
+  push:
+    branches:
+      - feature/python_spherical_camera
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  get_system_time:
+    name: Get System Time
+    runs-on: ubuntu-latest
+    outputs:
+      timestamp: ${{ steps.get_time.outputs.timestamp }}
+    steps:
+      - name: Get system time
+        id: get_time
+        run: echo "timestamp=$(date +'%Y%m%d%H%M')" >> "$GITHUB_OUTPUT"
+
+  # =============================================================================
+  # Linux + macOS wheels via cibuildwheel
+  # =============================================================================
+  build_wheels:
+    name: Build Wheels (${{ matrix.platform_id }} cp${{ matrix.cibw_python_version }})
+    needs: get_system_time
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            python_version: "3.11"
+            cibw_python_version: 311
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux2014
+          - os: ubuntu-latest
+            python_version: "3.12"
+            cibw_python_version: 312
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux2014
+          - os: ubuntu-latest
+            python_version: "3.13"
+            cibw_python_version: 313
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux2014
+          - os: ubuntu-latest
+            python_version: "3.14"
+            cibw_python_version: 314
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux2014
+
+          # Linux aarch64
+          - os: ubuntu-24.04-arm
+            python_version: "3.11"
+            cibw_python_version: 311
+            platform_id: manylinux_aarch64
+            manylinux_image: manylinux2014
+          - os: ubuntu-24.04-arm
+            python_version: "3.12"
+            cibw_python_version: 312
+            platform_id: manylinux_aarch64
+            manylinux_image: manylinux2014
+          - os: ubuntu-24.04-arm
+            python_version: "3.13"
+            cibw_python_version: 313
+            platform_id: manylinux_aarch64
+            manylinux_image: manylinux2014
+          - os: ubuntu-24.04-arm
+            python_version: "3.14"
+            cibw_python_version: 314
+            platform_id: manylinux_aarch64
+            manylinux_image: manylinux2014
+
+          # MacOS universal2
+          - os: macos-latest
+            python_version: "3.11"
+            cibw_python_version: 311
+            platform_id: macosx_universal2
+          - os: macos-latest
+            python_version: "3.12"
+            cibw_python_version: 312
+            platform_id: macosx_universal2
+          - os: macos-latest
+            python_version: "3.13"
+            cibw_python_version: 313
+            platform_id: macosx_universal2
+          - os: macos-latest
+            python_version: "3.14"
+            cibw_python_version: 314
+            platform_id: macosx_universal2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Set Develop Flag
+        run: |
+          echo "DEVELOP=1" >> $GITHUB_ENV
+          echo "TIMESTAMP=${{ needs.get_system_time.outputs.timestamp }}" >> $GITHUB_ENV
+
+      - name: Install Dependencies
+        run: |
+          python3 -m pip install -r python/dev_requirements.txt
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt update
+            sudo apt-get install -y libicu-dev python3-pip python3-setuptools libboost-all-dev
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew install boost python-setuptools
+          else
+            echo "$RUNNER_OS not supported"
+            exit 1
+          fi
+
+      - name: Run CMake
+        run: |
+          cmake -B build -G Ninja -DGTSAM_BUILD_PYTHON=1 -DGTSAM_PYTHON_VERSION=${{ matrix.python_version }}
+
+      - name: Uninstall Boost (MacOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew uninstall boost
+
+      - name: Build and test wheels
+        env:
+          CIBW_BUILD: cp${{ matrix.cibw_python_version }}-${{ matrix.platform_id }}
+          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux_image }}
+          CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.manylinux_image }}
+          CIBW_ARCHS: all
+          CIBW_ARCHS_MACOS: universal2
+          CIBW_ENVIRONMENT_PASS_LINUX: DEVELOP TIMESTAMP
+          MACOSX_DEPLOYMENT_TARGET: 10.15
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: DYLD_LIBRARY_PATH=$REPAIR_LIBRARY_PATH delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
+          CIBW_BUILD_FRONTEND: "build"
+          CIBW_BEFORE_ALL: bash .github/scripts/python_wheels/cibw_before_all.sh ${{ matrix.python_version }} {project}
+          CIBW_BUILD_VERBOSITY: 1
+        run: bash .github/scripts/python_wheels/build_wheels.sh
+
+      - name: Test wheel
+        run: |
+          python3 -m pip install wheelhouse/*.whl
+          python3 -c "import platform; print(platform.machine()); import gtsam"
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            arch -x86_64 python3 -m pip uninstall -y numpy
+            arch -x86_64 python3 -m pip install wheelhouse/*.whl
+            arch -x86_64 python3 -c "import platform; print(platform.machine()); import gtsam;"
+          fi
+
+      - name: Store artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-cp${{ matrix.cibw_python_version }}-${{ matrix.platform_id }}
+          path: wheelhouse/*.whl
+
+  # =============================================================================
+  # Windows wheels (manual build with MSVC)
+  # =============================================================================
+  build_wheels_windows:
+    name: Build Wheels (Windows cp${{ matrix.python_version }})
+    needs: get_system_time
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version: ["3.11", "3.12", "3.13", "3.14"]
+
+    env:
+      BOOST_VERSION: "1.87.0"
+      BOOST_VERSION_UNDERSCORE: "1_87_0"
+      BOOST_MSVC_VERSION: "14.3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Boost (prebuilt)
+        shell: powershell
+        run: |
+          $BOOST_PATH = "C:\local\boost"
+
+          # Download prebuilt Boost binary from SourceForge
+          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/$env:BOOST_VERSION/boost_$env:BOOST_VERSION_UNDERSCORE-msvc-$env:BOOST_MSVC_VERSION-64.exe"
+          Write-Host "Downloading Boost from $Url ..."
+
+          $wc = New-Object System.Net.Webclient
+          $wc.Headers.Add("User-Agent: Other")
+          $wc.DownloadFile($Url, "$env:TEMP\boost.exe")
+
+          Write-Host "Installing Boost to $BOOST_PATH ..."
+          Start-Process -Wait -FilePath "$env:TEMP\boost.exe" "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=$BOOST_PATH"
+
+          echo "BOOST_ROOT=$BOOST_PATH" >> $env:GITHUB_ENV
+
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          choco install ninja -y --no-progress
+          python -m pip install -r python/dev_requirements.txt
+          python -m pip install delvewheel build setuptools wheel
+
+      - name: Set Develop Flag
+        shell: bash
+        run: |
+          echo "DEVELOP=1" >> $GITHUB_ENV
+          echo "TIMESTAMP=${{ needs.get_system_time.outputs.timestamp }}" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          # Convert Windows backslashes to forward slashes for CMake
+          BOOST_ROOT_UNIX=$(echo "$BOOST_ROOT" | sed 's/\\/\//g')
+
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGTSAM_BUILD_PYTHON=ON \
+            -DGTSAM_UNSTABLE_BUILD_PYTHON=ON \
+            -DGTSAM_PYTHON_VERSION=${{ matrix.python_version }} \
+            -DGTSAM_BUILD_TESTS=OFF \
+            -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+            -DGTSAM_ALLOW_DEPRECATED_SINCE_V43=OFF \
+            -DGTSAM_BUILD_WITH_MARCH_NATIVE=OFF \
+            -DGTSAM_USE_QUATERNIONS=OFF \
+            -DGTSAM_WITH_TBB=OFF \
+            -DGTSAM_BUILD_WITH_PRECOMPILED_HEADERS=OFF \
+            -DGTSAM_USE_BOOST_FEATURES=ON \
+            -DGTSAM_ENABLE_BOOST_SERIALIZATION=ON \
+            -DBOOST_ROOT="${BOOST_ROOT_UNIX}" \
+            -DBOOST_INCLUDEDIR="${BOOST_ROOT_UNIX}" \
+            -DBOOST_LIBRARYDIR="${BOOST_ROOT_UNIX}/lib64-msvc-14.3"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build -j4
+
+      - name: Build Wheel
+        shell: bash
+        run: |
+          cd build/python
+          pip wheel . --no-deps --no-build-isolation -w ../../wheelhouse
+
+      - name: Repair Wheel
+        shell: bash
+        run: |
+          mkdir -p repaired_wheelhouse
+          for whl in wheelhouse/*.whl; do
+            delvewheel repair "$whl" -w repaired_wheelhouse --no-mangle-all
+          done
+          rm -rf wheelhouse
+          mv repaired_wheelhouse wheelhouse
+
+      - name: Test wheel
+        shell: bash
+        run: |
+          python -m pip install wheelhouse/*.whl
+          python -c "import platform; print(platform.machine()); import gtsam; print('gtsam imported successfully')"
+
+      - name: Store artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-cp${{ matrix.python_version }}-win_amd64
+          path: wheelhouse/*.whl
