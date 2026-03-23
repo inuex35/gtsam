@@ -613,6 +613,63 @@ virtual class DifferentialPseudorangeFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+#include <gtsam/navigation/CarrierPhaseFactor.h>
+virtual class CarrierPhaseFactor : gtsam::NonlinearFactor {
+  CarrierPhaseFactor(gtsam::Key receiverPositionKey,
+                      gtsam::Key receiverClockBiasKey,
+                      gtsam::Key ambiguityKey,
+                      double measuredCarrierPhase,
+                      const gtsam::Point3& satellitePosition,
+                      double satelliteClockBias,
+                      const gtsam::noiseModel::Base* model);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Point3& receiverPosition,
+                              const double& receiverClockBias,
+                              const double& ambiguity) const;
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
+virtual class CarrierPhaseFactorArm : gtsam::NonlinearFactor {
+  CarrierPhaseFactorArm(gtsam::Key poseKey,
+                         gtsam::Key receiverClockBiasKey,
+                         gtsam::Key ambiguityKey,
+                         double measuredCarrierPhase,
+                         const gtsam::Point3& satellitePosition,
+                         const gtsam::Point3& leverArm,
+                         double satelliteClockBias,
+                         const gtsam::noiseModel::Base* model);
+  CarrierPhaseFactorArm(gtsam::Key poseKey,
+                         gtsam::Key receiverClockBiasKey,
+                         gtsam::Key ambiguityKey,
+                         double measuredCarrierPhase,
+                         const gtsam::Point3& satellitePosition,
+                         const gtsam::Point3& leverArm,
+                         const gtsam::Pose3& ecef_T_nav,
+                         double satelliteClockBias,
+                         const gtsam::noiseModel::Base* model);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              const double& receiverClockBias,
+                              const double& ambiguity) const;
+  const gtsam::Point3& leverArm() const;
+
+  // enable serialization functionality
+  void serialize() const;
+};
 
 #include <gtsam/navigation/BarometricFactor.h>
 virtual class BarometricFactor : gtsam::NonlinearFactor {
