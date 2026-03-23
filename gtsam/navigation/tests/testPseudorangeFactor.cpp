@@ -656,6 +656,65 @@ TEST(TestDifferentialPseudorangeFactorArm, EcefTnavConsistency) {
 }
 
 // *************************************************************************
+// PseudorangeDDFactor tests (Point3, no lever arm)
+// *************************************************************************
+TEST(TestPseudorangeDDFactor, ZeroError) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = PseudorangeDDFactor(Key(0), 0.0, satPos, satPosBase, refPos);
+  const double error = factor.evaluateError(refPos)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactor, Jacobians) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = PseudorangeDDFactor(Key(0), 100.0, satPos, satPosBase, refPos);
+
+  Values values;
+  values.insert(Key(0), Point3(-3961780.0, 3349050.0, 3698350.0));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactor, ConsistencyWithArm) {
+  // Point3 version should match Arm version with zero lever arm at identity rotation
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 pos(-3961780.0, 3349050.0, 3698350.0);
+
+  const auto factorPt = PseudorangeDDFactor(Key(0), 100.0, satPos, satPosBase, refPos);
+  const auto factorArm = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, Point3::Zero());
+
+  const double errorPt = factorPt.evaluateError(pos)[0];
+  const double errorArm = factorArm.evaluateError(Pose3(Rot3::Identity(), pos))[0];
+  EXPECT_DOUBLES_EQUAL(errorPt, errorArm, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactor, print) {
+  const auto factor = PseudorangeDDFactor(
+      Key(0), 0.0, Point3(1, 2, 3), Point3(4, 5, 6), Point3(7, 8, 9));
+  factor.print("test DD ");
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactor, equals) {
+  const auto f1 = PseudorangeDDFactor(1, 100.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  const auto f2 = PseudorangeDDFactor(1, 100.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  const auto f3 = PseudorangeDDFactor(1, 200.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  CHECK(f1.equals(f2));
+  CHECK(!f1.equals(f3));
+}
+
+// *************************************************************************
 // PseudorangeDDFactorArm tests
 // *************************************************************************
 TEST(TestPseudorangeDDFactorArm, ZeroError) {
