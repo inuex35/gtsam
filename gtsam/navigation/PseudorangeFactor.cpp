@@ -334,4 +334,109 @@ Vector DifferentialPseudorangeFactorArm::evaluateError(
   return Vector1(error);
 }
 
+//***************************************************************************
+PseudorangeDDFactorArm::PseudorangeDDFactorArm(
+    const Key poseKey, const double ddPseudorange,
+    const Point3& satellitePosition, const Point3& baseSatellitePosition,
+    const Point3& referencePosition, const Point3& leverArm,
+    const SharedNoiseModel& model)
+    : Base(model, poseKey),
+      ddPseudorange_(ddPseudorange),
+      satPos_(satellitePosition),
+      satPosBase_(baseSatellitePosition),
+      refPos_(referencePosition),
+      bL_(leverArm) {}
+
+//***************************************************************************
+PseudorangeDDFactorArm::PseudorangeDDFactorArm(
+    const Key poseKey, const double ddPseudorange,
+    const Point3& satellitePosition, const Point3& baseSatellitePosition,
+    const Point3& referencePosition, const Point3& leverArm,
+    const Pose3& ecef_T_nav, const SharedNoiseModel& model)
+    : Base(model, poseKey),
+      ddPseudorange_(ddPseudorange),
+      satPos_(satellitePosition),
+      satPosBase_(baseSatellitePosition),
+      refPos_(referencePosition),
+      bL_(leverArm),
+      ecef_T_nav_(ecef_T_nav) {}
+
+//***************************************************************************
+void PseudorangeDDFactorArm::print(const std::string& s,
+                                   const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(ddPseudorange_, "DD pseudorange (m): ");
+  gtsam::print(Vector(satPos_), "target sat position (ECEF meters): ");
+  gtsam::print(Vector(satPosBase_), "base sat position (ECEF meters): ");
+  gtsam::print(Vector(refPos_), "reference position (ECEF meters): ");
+  gtsam::print(Vector(bL_), "lever arm (body frame meters): ");
+  if (ecef_T_nav_) {
+    ecef_T_nav_->print("ecef_T_nav:\n");
+  }
+}
+
+//***************************************************************************
+bool PseudorangeDDFactorArm::equals(const NonlinearFactor& expected,
+                                    double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  if (e == nullptr || !Base::equals(*e, tol)) return false;
+  if (!traits<double>::Equals(ddPseudorange_, e->ddPseudorange_, tol))
+    return false;
+  if (!traits<Point3>::Equals(satPos_, e->satPos_, tol)) return false;
+  if (!traits<Point3>::Equals(satPosBase_, e->satPosBase_, tol)) return false;
+  if (!traits<Point3>::Equals(refPos_, e->refPos_, tol)) return false;
+  if (!traits<Point3>::Equals(bL_, e->bL_, tol)) return false;
+  if (ecef_T_nav_.has_value() != e->ecef_T_nav_.has_value()) return false;
+  if (ecef_T_nav_ && !ecef_T_nav_->equals(*e->ecef_T_nav_, tol)) return false;
+  return true;
+}
+
+//***************************************************************************
+Vector PseudorangeDDFactorArm::evaluateError(
+    const Pose3& pose, OptionalMatrixType H_pose) const {
+  // Convert from local nav frame to ECEF if ecef_T_nav is provided:
+  Matrix66 H_compose;
+  const bool has_nav = ecef_T_nav_.has_value();
+  const Pose3 ecef_T_body = has_nav
+      ? ecef_T_nav_->compose(pose, {}, H_pose ? &H_compose : nullptr)
+      : pose;
+
+  // Compute rover antenna position in ECEF:
+  const Matrix3 ecef_R_body = ecef_T_body.rotation().matrix();
+  const Point3 antennaPos = ecef_T_body.translation() + ecef_R_body * bL_;
+
+  // DD ranges:
+  const Vector3 diff_rov = antennaPos - satPos_;
+  const double rho_rov = diff_rov.norm();
+  const Vector3 diff_rov_base = antennaPos - satPosBase_;
+  const double rho_rov_base = diff_rov_base.norm();
+
+  const double rho_ref = (refPos_ - satPos_).norm();
+  const double rho_ref_base = (refPos_ - satPosBase_).norm();
+
+  const double dd_rho = rho_rov - rho_ref - rho_rov_base + rho_ref_base;
+  const double error = dd_rho - ddPseudorange_;
+
+  if (H_pose) {
+    H_pose->resize(1, 6);
+    const bool range_ok =
+        rho_rov > std::numeric_limits<double>::epsilon() &&
+        rho_rov_base > std::numeric_limits<double>::epsilon();
+    if (!range_ok) {
+      H_pose->setZero();
+    } else {
+      const Matrix13 u = (diff_rov / rho_rov).transpose();
+      const Matrix13 u_base = (diff_rov_base / rho_rov_base).transpose();
+      const Matrix13 dd_u = u - u_base;
+      Matrix16 H_ecef;
+      H_ecef.block<1, 3>(0, 0) =
+          dd_u * (-ecef_R_body * skewSymmetric(bL_));
+      H_ecef.block<1, 3>(0, 3) = dd_u * ecef_R_body;
+      *H_pose = has_nav ? H_ecef * H_compose : H_ecef;
+    }
+  }
+
+  return Vector1(error);
+}
+
 }  // namespace gtsam

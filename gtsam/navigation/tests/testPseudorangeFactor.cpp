@@ -656,6 +656,122 @@ TEST(TestDifferentialPseudorangeFactorArm, EcefTnavConsistency) {
 }
 
 // *************************************************************************
+// PseudorangeDDFactorArm tests
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, ZeroError) {
+  // Rover at reference position: DD range = 0, error = -dd_pr
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  // dd_pr = 0 when computed from the same position
+  const auto factor = PseudorangeDDFactorArm(
+      Key(0), 0.0, satPos, satPosBase, refPos, Point3::Zero());
+
+  const Pose3 pose(Rot3::Identity(), refPos);
+  const double error = factor.evaluateError(pose)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, Jacobians) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factor = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                               Point3(-3961780.0, 3349050.0, 3698350.0)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, EcefTnavIdentity) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factorEcef = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm);
+  const auto factorNav = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm, Pose3::Identity());
+
+  const Pose3 pose(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                    Point3(-3961780.0, 3349050.0, 3698350.0));
+  EXPECT_DOUBLES_EQUAL(
+      factorEcef.evaluateError(pose)[0],
+      factorNav.evaluateError(pose)[0], 1e-9);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, EcefTnavENUJacobians) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factor = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm, ecef_T_nav);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                               Point3(10.0, 20.0, 5.0)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, EcefTnavConsistency) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Pose3 nav_T_body(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                          Point3(10.0, 20.0, 5.0));
+  const Pose3 ecef_T_body = ecef_T_nav.compose(nav_T_body);
+
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factorEcef = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm);
+  const auto factorNav = PseudorangeDDFactorArm(
+      Key(0), 100.0, satPos, satPosBase, refPos, leverArm, ecef_T_nav);
+
+  EXPECT_DOUBLES_EQUAL(
+      factorEcef.evaluateError(ecef_T_body)[0],
+      factorNav.evaluateError(nav_T_body)[0], 1e-6);
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, print) {
+  const auto factor = PseudorangeDDFactorArm(
+      Key(0), 0.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), Point3(0.1, 0.2, 0.3));
+  factor.print("test DD PR ");
+}
+
+// *************************************************************************
+TEST(TestPseudorangeDDFactorArm, equals) {
+  const Point3 leverArm(0.1, 0.2, 0.3);
+  const auto f1 = PseudorangeDDFactorArm(
+      1, 100.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+  const auto f2 = PseudorangeDDFactorArm(
+      1, 100.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+  const auto f3 = PseudorangeDDFactorArm(
+      1, 200.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+  CHECK(f1.equals(f2));
+  CHECK(!f1.equals(f3));
+}
+
+// *************************************************************************
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

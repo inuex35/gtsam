@@ -613,6 +613,36 @@ virtual class DifferentialPseudorangeFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+virtual class PseudorangeDDFactorArm : gtsam::NonlinearFactor {
+  PseudorangeDDFactorArm(gtsam::Key poseKey,
+                          double ddPseudorange,
+                          const gtsam::Point3& satellitePosition,
+                          const gtsam::Point3& baseSatellitePosition,
+                          const gtsam::Point3& referencePosition,
+                          const gtsam::Point3& leverArm,
+                          const gtsam::noiseModel::Base* model);
+  PseudorangeDDFactorArm(gtsam::Key poseKey,
+                          double ddPseudorange,
+                          const gtsam::Point3& satellitePosition,
+                          const gtsam::Point3& baseSatellitePosition,
+                          const gtsam::Point3& referencePosition,
+                          const gtsam::Point3& leverArm,
+                          const gtsam::Pose3& ecef_T_nav,
+                          const gtsam::noiseModel::Base* model);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose) const;
+  const gtsam::Point3& leverArm() const;
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
 #include <gtsam/navigation/CarrierPhaseFactor.h>
 virtual class CarrierPhaseFactor : gtsam::NonlinearFactor {
   CarrierPhaseFactor(gtsam::Key receiverPositionKey,
