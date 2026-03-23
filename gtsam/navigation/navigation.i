@@ -671,6 +671,42 @@ virtual class CarrierPhaseFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+virtual class CarrierPhaseDDFactorArm : gtsam::NonlinearFactor {
+  CarrierPhaseDDFactorArm(gtsam::Key poseKey,
+                           gtsam::Key ambiguityKey,
+                           gtsam::Key ambiguityBaseKey,
+                           double ddCarrierPhase,
+                           const gtsam::Point3& satellitePosition,
+                           const gtsam::Point3& baseSatellitePosition,
+                           const gtsam::Point3& referencePosition,
+                           const gtsam::Point3& leverArm,
+                           const gtsam::noiseModel::Base* model);
+  CarrierPhaseDDFactorArm(gtsam::Key poseKey,
+                           gtsam::Key ambiguityKey,
+                           gtsam::Key ambiguityBaseKey,
+                           double ddCarrierPhase,
+                           const gtsam::Point3& satellitePosition,
+                           const gtsam::Point3& baseSatellitePosition,
+                           const gtsam::Point3& referencePosition,
+                           const gtsam::Point3& leverArm,
+                           const gtsam::Pose3& ecef_T_nav,
+                           const gtsam::noiseModel::Base* model);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              const double& ambiguity,
+                              const double& ambiguityBase) const;
+  const gtsam::Point3& leverArm() const;
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
 #include <gtsam/navigation/BarometricFactor.h>
 virtual class BarometricFactor : gtsam::NonlinearFactor {
   BarometricFactor();

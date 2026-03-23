@@ -18,26 +18,23 @@ namespace gtsam {
 /**
  * Base class storing common members for carrier phase factors.
  *
- * All quantities are in meters. The receiver clock bias and ambiguity
- * variables are also in meters, following the convention used by gici-open.
- * This makes the factor frequency-independent and simplifies multi-frequency
- * processing. To recover the integer ambiguity N, divide by the wavelength:
- *   N = ambiguity_meters / lambda
+ * Clock biases are in seconds (same convention as PseudorangeFactorArm).
+ * Ambiguity is in meters (= lambda * N). To recover the integer
+ * ambiguity N, divide by the wavelength: N = ambiguity_meters / lambda
  */
 struct CarrierPhaseBase {
   double carrierPhase_;  ///< Carrier phase measurement in meters.
   Point3 satPos_;        ///< Satellite position in WGS84 ECEF meters.
-  double satClkBias_;    ///< Satellite clock bias in meters (c * dt_s).
+  double satClkBias_;    ///< Satellite clock bias in seconds.
 };
 
 /**
  * Undifferenced GNSS carrier phase factor for point positioning.
  *
- * The error model (all in meters) is:
- *   error = ||recv_pos - satPos|| + clock_bias - sat_clock_bias
- *           + ambiguity - carrier_phase
+ * The error model is:
+ *   error = ||recv_pos - satPos|| + c*(dt_u - dt_s) + ambiguity - phi
  *
- * where clock_bias and ambiguity are estimated in meters.
+ * where dt_u, dt_s are in seconds and ambiguity is in meters.
  *
  * @ingroup navigation
  */
@@ -63,11 +60,11 @@ class GTSAM_EXPORT CarrierPhaseFactor
    * Construct a CarrierPhaseFactor.
    *
    * @param receiverPositionKey Receiver gtsam::Point3 ECEF position node.
-   * @param receiverClockBiasKey Receiver clock bias node (meters).
-   * @param ambiguityKey Ambiguity node (meters, = lambda * N).
+   * @param receiverClockBiasKey Receiver clock bias node (seconds).
+   * @param ambiguityKey Ambiguity node (meters, = lambda * N)..
    * @param measuredCarrierPhase Carrier phase measurement in meters.
    * @param satellitePosition Satellite ECEF position in meters.
-   * @param satelliteClockBias Satellite clock bias in meters (c * dt_s).
+   * @param satelliteClockBias Satellite clock bias in seconds.
    * @param model 1-D noise model.
    */
   CarrierPhaseFactor(
@@ -124,9 +121,8 @@ struct traits<CarrierPhaseFactor> : public Testable<CarrierPhaseFactor> {};
  * The antenna position is computed as:
  *   antenna_pos = ecef_T_body.translation() + ecef_R_body * bL_
  *
- * The error model (all in meters) is:
- *   error = ||antenna_pos - satPos|| + clock_bias - sat_clock_bias
- *           + ambiguity - carrier_phase
+ * The error model is:
+ *   error = ||antenna_pos - satPos|| + c*(dt_u - dt_s) + ambiguity - phi
  *
  * When the optional ecef_T_nav transform is provided, the pose key is
  * interpreted as a local navigation frame pose (e.g., ENU), and the factor
@@ -157,15 +153,6 @@ class GTSAM_EXPORT CarrierPhaseFactorArm
 
   /**
    * Construct a CarrierPhaseFactorArm (ECEF pose key).
-   *
-   * @param poseKey Receiver gtsam::Pose3 key (body pose in ECEF frame).
-   * @param receiverClockBiasKey Receiver clock bias node (meters).
-   * @param ambiguityKey Ambiguity node (meters, = lambda * N).
-   * @param measuredCarrierPhase Carrier phase measurement in meters.
-   * @param satellitePosition Satellite ECEF position in meters.
-   * @param leverArm Translation from body origin to antenna in body frame.
-   * @param satelliteClockBias Satellite clock bias in meters (c * dt_s).
-   * @param model 1-D noise model.
    */
   CarrierPhaseFactorArm(
       Key poseKey, Key receiverClockBiasKey, Key ambiguityKey,
@@ -175,16 +162,6 @@ class GTSAM_EXPORT CarrierPhaseFactorArm
 
   /**
    * Construct a CarrierPhaseFactorArm with ecef_T_nav (local nav frame pose).
-   *
-   * @param poseKey Receiver gtsam::Pose3 key (body pose in local nav frame).
-   * @param receiverClockBiasKey Receiver clock bias node (meters).
-   * @param ambiguityKey Ambiguity node (meters, = lambda * N).
-   * @param measuredCarrierPhase Carrier phase measurement in meters.
-   * @param satellitePosition Satellite ECEF position in meters.
-   * @param leverArm Translation from body origin to antenna in body frame.
-   * @param ecef_T_nav Transform from local navigation frame to ECEF.
-   * @param satelliteClockBias Satellite clock bias in meters (c * dt_s).
-   * @param model 1-D noise model.
    */
   CarrierPhaseFactorArm(
       Key poseKey, Key receiverClockBiasKey, Key ambiguityKey,
@@ -240,5 +217,135 @@ class GTSAM_EXPORT CarrierPhaseFactorArm
 template <>
 struct traits<CarrierPhaseFactorArm>
     : public Testable<CarrierPhaseFactorArm> {};
+
+/**
+ * Double-differenced carrier phase factor with lever arm correction.
+ *
+ * Implements the RTK carrier phase model using double differences between
+ * rover/reference stations and target/base satellites. Eliminates receiver
+ * clock biases and reduces atmospheric errors.
+ *
+ * The DD observation (precomputed by caller):
+ *   dd_phi = phi_rov - phi_ref - phi_rov_base + phi_ref_base
+ *
+ * The DD model:
+ *   dd_rho = ||antenna_rov - sat|| - ||ref_pos - sat||
+ *          - ||antenna_rov - sat_base|| + ||ref_pos - sat_base||
+ *
+ * The error:
+ *   error = dd_rho + ambiguity - ambiguity_base - dd_phi
+ *
+ * Keys: (Pose3 rover_pose, double ambiguity, double ambiguity_base)
+ * Fixed: satellite positions (2), reference station position, DD measurement.
+ *
+ * When the optional ecef_T_nav transform is provided, the pose key is
+ * interpreted as a local navigation frame pose.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT CarrierPhaseDDFactorArm
+    : public NoiseModelFactorN<Pose3, double, double> {
+ private:
+  typedef NoiseModelFactorN<Pose3, double, double> Base;
+
+  double ddPhase_;     ///< DD carrier phase measurement in meters.
+  Point3 satPos_;      ///< Target satellite ECEF position in meters.
+  Point3 satPosBase_;  ///< Base satellite ECEF position in meters.
+  Point3 refPos_;      ///< Reference station ECEF position in meters.
+  Point3 bL_;          ///< Lever arm from body origin to antenna in body frame.
+  std::optional<Pose3> ecef_T_nav_;  ///< Optional ECEF-from-nav transform.
+
+ public:
+  using Base::evaluateError;
+
+  typedef std::shared_ptr<CarrierPhaseDDFactorArm> shared_ptr;
+  typedef CarrierPhaseDDFactorArm This;
+
+  /** default constructor - only use for serialization */
+  CarrierPhaseDDFactorArm()
+      : ddPhase_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
+        refPos_(0, 0, 0), bL_(0, 0, 0) {}
+
+  virtual ~CarrierPhaseDDFactorArm() = default;
+
+  /**
+   * Construct a CarrierPhaseDDFactorArm (ECEF pose key).
+   *
+   * @param poseKey Rover Pose3 key (body pose in ECEF frame).
+   * @param ambiguityKey DD ambiguity for target satellite (meters).
+   * @param ambiguityBaseKey DD ambiguity for base satellite (meters).
+   * @param ddCarrierPhase DD carrier phase measurement in meters.
+   * @param satellitePosition Target satellite ECEF position in meters.
+   * @param baseSatellitePosition Base satellite ECEF position in meters.
+   * @param referencePosition Reference station ECEF position in meters.
+   * @param leverArm Translation from body origin to antenna in body frame.
+   * @param model 1-D noise model.
+   */
+  CarrierPhaseDDFactorArm(
+      Key poseKey, Key ambiguityKey, Key ambiguityBaseKey,
+      double ddCarrierPhase,
+      const Point3& satellitePosition, const Point3& baseSatellitePosition,
+      const Point3& referencePosition, const Point3& leverArm,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  /**
+   * Construct a CarrierPhaseDDFactorArm with ecef_T_nav.
+   */
+  CarrierPhaseDDFactorArm(
+      Key poseKey, Key ambiguityKey, Key ambiguityBaseKey,
+      double ddCarrierPhase,
+      const Point3& satellitePosition, const Point3& baseSatellitePosition,
+      const Point3& referencePosition, const Point3& leverArm,
+      const Pose3& ecef_T_nav,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  /// @return a deep copy of this factor
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  /// print
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  /// equals
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  /// vector of errors
+  Vector evaluateError(const Pose3& pose,
+                       const double& ambiguity,
+                       const double& ambiguityBase,
+                       OptionalMatrixType H_pose,
+                       OptionalMatrixType Hambiguity,
+                       OptionalMatrixType HambiguityBase) const override;
+
+  /// return the lever arm
+  inline const Point3& leverArm() const { return bL_; }
+
+  /// return the optional ecef_T_nav transform
+  inline const std::optional<Pose3>& ecefTnav() const { return ecef_T_nav_; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION  ///
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseDDFactorArm::Base);
+    ar& BOOST_SERIALIZATION_NVP(ddPhase_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(satPosBase_);
+    ar& BOOST_SERIALIZATION_NVP(refPos_);
+    ar& BOOST_SERIALIZATION_NVP(bL_);
+    ar& BOOST_SERIALIZATION_NVP(ecef_T_nav_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<CarrierPhaseDDFactorArm>
+    : public Testable<CarrierPhaseDDFactorArm> {};
 
 }  // namespace gtsam

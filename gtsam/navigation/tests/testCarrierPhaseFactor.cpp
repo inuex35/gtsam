@@ -80,17 +80,15 @@ TEST(TestCarrierPhaseFactor, AmbiguityEffect) {
 
 // *************************************************************************
 TEST(TestCarrierPhaseFactor, Jacobians) {
-  // sat_clock_bias in meters: c * dt_s
-  const double satClkBias_m = CLIGHT * (-0.00022743876852667193);
   const auto factor = CarrierPhaseFactor(
       Key(0), Key(1), Key(2), 24874028.989,
       Point3(-5824269.46342, -22935011.26952, -12195522.22428),
-      satClkBias_m);
+      -0.00022743876852667193);
 
   Values values;
   values.insert(Key(0), Point3(-3961908.12, 3348995.59, 3698211.13));
-  values.insert(Key(1), CLIGHT * 5.377885e-07);  // clock in meters
-  values.insert(Key(2), LAMBDA_L1 * 1000.0);     // ambiguity in meters
+  values.insert(Key(1), 5.377885e-07);         // clock in seconds
+  values.insert(Key(2), LAMBDA_L1 * 1000.0);   // ambiguity in meters
   EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
 }
 
@@ -128,16 +126,15 @@ TEST(TestCarrierPhaseFactorArm, Constructor) {
 // *************************************************************************
 TEST(TestCarrierPhaseFactorArm, Jacobians) {
   const Point3 leverArm(0.1, 0.0, -0.5);
-  const double satClkBias_m = CLIGHT * (-0.00022743876852667193);
   const auto factor = CarrierPhaseFactorArm(
       Key(0), Key(1), Key(2), 24874028.989,
       Point3(-5824269.46342, -22935011.26952, -12195522.22428),
-      leverArm, satClkBias_m);
+      leverArm, -0.00022743876852667193);
 
   Values values;
   values.insert(Key(0), Pose3(Rot3::RzRyRx(0.1, 0.2, 0.3),
                                Point3(-3961908.12, 3348995.59, 3698211.13)));
-  values.insert(Key(1), CLIGHT * 5.377885e-07);
+  values.insert(Key(1), 5.377885e-07);          // clock in seconds
   values.insert(Key(2), LAMBDA_L1 * 1000.0);
   EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
 }
@@ -147,18 +144,18 @@ TEST(TestCarrierPhaseFactorArm, ZeroLeverArm) {
   const Point3 pos(-3961908.12, 3348995.59, 3698211.13);
   const Point3 satPos(-5824269.46342, -22935011.26952, -12195522.22428);
   const double phi = 24874028.989;
-  const double satClk_m = CLIGHT * (-0.00022743876852667193);
-  const double clock_m = CLIGHT * 1e-7;
+  const double satClk = -0.00022743876852667193;
+  const double clock = 1e-7;
   const double amb_m = LAMBDA_L1 * 500.0;
 
   const auto factorPt = CarrierPhaseFactor(
-      Key(0), Key(1), Key(2), phi, satPos, satClk_m);
+      Key(0), Key(1), Key(2), phi, satPos, satClk);
   const auto factorArm = CarrierPhaseFactorArm(
-      Key(0), Key(1), Key(2), phi, satPos, Point3::Zero(), satClk_m);
+      Key(0), Key(1), Key(2), phi, satPos, Point3::Zero(), satClk);
 
-  const double errorPt = factorPt.evaluateError(pos, clock_m, amb_m)[0];
+  const double errorPt = factorPt.evaluateError(pos, clock, amb_m)[0];
   const double errorArm = factorArm.evaluateError(
-      Pose3(Rot3::Identity(), pos), clock_m, amb_m)[0];
+      Pose3(Rot3::Identity(), pos), clock, amb_m)[0];
   EXPECT_DOUBLES_EQUAL(errorPt, errorArm, 1e-9);
 }
 
@@ -199,16 +196,15 @@ TEST(TestCarrierPhaseFactorArm, EcefTnavENUJacobians) {
   const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
   const Point3 leverArm(0.1, 0.0, -0.5);
   const Point3 satPos(-5824269.46342, -22935011.26952, -12195522.22428);
-  const double satClkBias_m = CLIGHT * (-0.00022743876852667193);
 
   const auto factor = CarrierPhaseFactorArm(
       Key(0), Key(1), Key(2), 24874028.989, satPos, leverArm,
-      ecef_T_nav, satClkBias_m);
+      ecef_T_nav, -0.00022743876852667193);
 
   Values values;
   values.insert(Key(0), Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
                                Point3(10.0, 20.0, 5.0)));
-  values.insert(Key(1), CLIGHT * 5.377885093511699e-07);
+  values.insert(Key(1), 5.377885093511699e-07);
   values.insert(Key(2), LAMBDA_L1 * 1000.0);
   EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
 }
@@ -223,20 +219,20 @@ TEST(TestCarrierPhaseFactorArm, EcefTnavConsistency) {
   const Point3 leverArm(0.1, 0.0, -0.5);
   const Point3 satPos(-5824269.46342, -22935011.26952, -12195522.22428);
   const double phi = 24874028.989;
-  const double satClkBias_m = CLIGHT * (-0.00022743876852667193);
-  const double clockBias_m = CLIGHT * 5.377885093511699e-07;
+  const double satClkBias = -0.00022743876852667193;
+  const double clockBias = 5.377885093511699e-07;
   const double ambiguity_m = LAMBDA_L1 * 1000.0;
 
   const auto factorEcef = CarrierPhaseFactorArm(
-      Key(0), Key(1), Key(2), phi, satPos, leverArm, satClkBias_m);
+      Key(0), Key(1), Key(2), phi, satPos, leverArm, satClkBias);
   const auto factorNav = CarrierPhaseFactorArm(
       Key(0), Key(1), Key(2), phi, satPos, leverArm,
-      ecef_T_nav, satClkBias_m);
+      ecef_T_nav, satClkBias);
 
   const double errorEcef =
-      factorEcef.evaluateError(ecef_T_body, clockBias_m, ambiguity_m)[0];
+      factorEcef.evaluateError(ecef_T_body, clockBias, ambiguity_m)[0];
   const double errorNav =
-      factorNav.evaluateError(nav_T_body, clockBias_m, ambiguity_m)[0];
+      factorNav.evaluateError(nav_T_body, clockBias, ambiguity_m)[0];
   EXPECT_DOUBLES_EQUAL(errorEcef, errorNav, 1e-6);
 }
 
@@ -279,6 +275,155 @@ TEST(TestCarrierPhaseFactorArm, equals) {
 
   CHECK(f1.equals(f2));
   CHECK(!f1.equals(f3));  // different sat clock bias
+}
+
+// *************************************************************************
+// CarrierPhaseDDFactorArm tests
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, ZeroError) {
+  // When rover is at reference position, DD range = 0, amb = amb_base, error = 0
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.0, 0.0, 0.0);
+
+  const double rho_rov = (refPos - satPos).norm();
+  const double rho_ref = rho_rov;
+  const double rho_rov_base = (refPos - satPosBase).norm();
+  const double rho_ref_base = rho_rov_base;
+  const double dd_phi = rho_rov - rho_ref - rho_rov_base + rho_ref_base;  // = 0
+
+  const auto factor = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), dd_phi, satPos, satPosBase, refPos, leverArm);
+
+  const Pose3 pose(Rot3::Identity(), refPos);
+  const double error = factor.evaluateError(pose, 5.0, 5.0)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, Jacobians) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factor = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                               Point3(-3961780.0, 3349050.0, 3698350.0)));
+  values.insert(Key(1), 50.0);
+  values.insert(Key(2), 48.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, AmbiguityJacobians) {
+  // amb Jacobian = +1, amb_base Jacobian = -1
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.1, 0.0, 0.0);
+
+  const auto factor = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 0.0, satPos, satPosBase, refPos, leverArm);
+
+  const Pose3 pose(Rot3::Identity(), refPos);
+  const double e1 = factor.evaluateError(pose, 10.0, 5.0)[0];
+  const double e2 = factor.evaluateError(pose, 11.0, 5.0)[0];
+  const double e3 = factor.evaluateError(pose, 10.0, 6.0)[0];
+  EXPECT_DOUBLES_EQUAL(1.0, e2 - e1, 1e-9);   // d(error)/d(amb) = +1
+  EXPECT_DOUBLES_EQUAL(-1.0, e3 - e1, 1e-9);  // d(error)/d(amb_base) = -1
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, EcefTnavIdentity) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factorEcef = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm);
+  const auto factorNav = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm,
+      Pose3::Identity());
+
+  const Pose3 pose(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                    Point3(-3961780.0, 3349050.0, 3698350.0));
+  const double errEcef = factorEcef.evaluateError(pose, 50.0, 48.0)[0];
+  const double errNav = factorNav.evaluateError(pose, 50.0, 48.0)[0];
+  EXPECT_DOUBLES_EQUAL(errEcef, errNav, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, EcefTnavENUJacobians) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factor = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm,
+      ecef_T_nav);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                               Point3(10.0, 20.0, 5.0)));
+  values.insert(Key(1), 50.0);
+  values.insert(Key(2), 48.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, EcefTnavConsistency) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Pose3 nav_T_body(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                          Point3(10.0, 20.0, 5.0));
+  const Pose3 ecef_T_body = ecef_T_nav.compose(nav_T_body);
+
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 leverArm(0.31, 0.0, -0.55);
+
+  const auto factorEcef = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm);
+  const auto factorNav = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, leverArm,
+      ecef_T_nav);
+
+  const double errEcef = factorEcef.evaluateError(ecef_T_body, 50.0, 48.0)[0];
+  const double errNav = factorNav.evaluateError(nav_T_body, 50.0, 48.0)[0];
+  EXPECT_DOUBLES_EQUAL(errEcef, errNav, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, print) {
+  const auto factor = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 0.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), Point3(0.1, 0.2, 0.3));
+  factor.print("test DD ");
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactorArm, equals) {
+  const Point3 leverArm(0.1, 0.2, 0.3);
+  const auto f1 = CarrierPhaseDDFactorArm(
+      1, 2, 3, 100.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+  const auto f2 = CarrierPhaseDDFactorArm(
+      1, 2, 3, 100.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+  const auto f3 = CarrierPhaseDDFactorArm(
+      1, 2, 3, 200.0, Point3(1, 2, 3), Point3(4, 5, 6),
+      Point3(7, 8, 9), leverArm);
+
+  CHECK(f1.equals(f2));
+  CHECK(!f1.equals(f3));
 }
 
 // *************************************************************************
