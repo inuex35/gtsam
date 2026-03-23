@@ -278,6 +278,69 @@ TEST(TestCarrierPhaseFactorArm, equals) {
 }
 
 // *************************************************************************
+// CarrierPhaseDDFactor tests (Point3, no lever arm)
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactor, ZeroError) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = CarrierPhaseDDFactor(
+      Key(0), Key(1), Key(2), 0.0, satPos, satPosBase, refPos);
+  const double error = factor.evaluateError(refPos, 5.0, 5.0)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactor, Jacobians) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = CarrierPhaseDDFactor(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos);
+  Values values;
+  values.insert(Key(0), Point3(-3961780.0, 3349050.0, 3698350.0));
+  values.insert(Key(1), 50.0);
+  values.insert(Key(2), 48.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactor, ConsistencyWithArm) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+  const Point3 pos(-3961780.0, 3349050.0, 3698350.0);
+
+  const auto factorPt = CarrierPhaseDDFactor(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos);
+  const auto factorArm = CarrierPhaseDDFactorArm(
+      Key(0), Key(1), Key(2), 100.0, satPos, satPosBase, refPos, Point3::Zero());
+
+  const double errorPt = factorPt.evaluateError(pos, 50.0, 48.0)[0];
+  const double errorArm = factorArm.evaluateError(
+      Pose3(Rot3::Identity(), pos), 50.0, 48.0)[0];
+  EXPECT_DOUBLES_EQUAL(errorPt, errorArm, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactor, print) {
+  const auto factor = CarrierPhaseDDFactor(
+      Key(0), Key(1), Key(2), 0.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  factor.print("test DD CP ");
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDFactor, equals) {
+  const auto f1 = CarrierPhaseDDFactor(1,2,3, 100.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  const auto f2 = CarrierPhaseDDFactor(1,2,3, 100.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  const auto f3 = CarrierPhaseDDFactor(1,2,3, 200.0, Point3(1,2,3), Point3(4,5,6), Point3(7,8,9));
+  CHECK(f1.equals(f2));
+  CHECK(!f1.equals(f3));
+}
+
+// *************************************************************************
 // CarrierPhaseDDFactorArm tests
 // *************************************************************************
 TEST(TestCarrierPhaseDDFactorArm, ZeroError) {
