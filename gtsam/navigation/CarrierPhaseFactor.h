@@ -436,4 +436,104 @@ template <>
 struct traits<CarrierPhaseDDFactorArm>
     : public Testable<CarrierPhaseDDFactorArm> {};
 
+/**
+ * Double-differenced carrier phase factor with ionosphere estimation.
+ *
+ * Adds a DD ionosphere delay parameter to enable L1/L2 decorrelation.
+ * The ionosphere delay has opposite signs on L1 vs L2, allowing the
+ * solver to separate ambiguity from ionosphere using dual-frequency data.
+ *
+ * The error model:
+ *   error = dd_rho + ambiguity - ambiguity_base - ionoCoeff * iono - dd_phi
+ *
+ * where ionoCoeff = 1.0 for L1, (f1/f2)^2 for L2.
+ * iono is the DD ionosphere delay in meters at L1 frequency.
+ *
+ * Keys: (Point3 rover_position, double ambiguity, double ambiguity_base,
+ *        double iono)
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT CarrierPhaseDDIonoFactor
+    : public NoiseModelFactorN<Point3, double, double, double> {
+ private:
+  typedef NoiseModelFactorN<Point3, double, double, double> Base;
+
+  double ddPhase_;     ///< DD carrier phase measurement in meters.
+  Point3 satPos_;      ///< Target satellite ECEF position in meters.
+  Point3 satPosBase_;  ///< Base satellite ECEF position in meters.
+  Point3 refPos_;      ///< Reference station ECEF position in meters.
+  double ionoCoeff_;   ///< Ionosphere coefficient: 1.0 for L1, (f1/f2)^2 for L2.
+
+ public:
+  using Base::evaluateError;
+
+  typedef std::shared_ptr<CarrierPhaseDDIonoFactor> shared_ptr;
+  typedef CarrierPhaseDDIonoFactor This;
+
+  CarrierPhaseDDIonoFactor()
+      : ddPhase_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
+        refPos_(0, 0, 0), ionoCoeff_(1.0) {}
+
+  virtual ~CarrierPhaseDDIonoFactor() = default;
+
+  /**
+   * @param receiverPositionKey Rover Point3 ECEF position node.
+   * @param ambiguityKey DD ambiguity for target satellite (meters).
+   * @param ambiguityBaseKey DD ambiguity for base satellite (meters).
+   * @param ionoKey DD ionosphere delay at L1 frequency (meters).
+   * @param ddCarrierPhase DD carrier phase measurement in meters.
+   * @param satellitePosition Target satellite ECEF position in meters.
+   * @param baseSatellitePosition Base satellite ECEF position in meters.
+   * @param referencePosition Reference station ECEF position in meters.
+   * @param ionosphereCoefficient 1.0 for L1, (f1/f2)^2 for L2.
+   * @param model 1-D noise model.
+   */
+  CarrierPhaseDDIonoFactor(
+      Key receiverPositionKey, Key ambiguityKey, Key ambiguityBaseKey,
+      Key ionoKey, double ddCarrierPhase,
+      const Point3& satellitePosition, const Point3& baseSatellitePosition,
+      const Point3& referencePosition, double ionosphereCoefficient = 1.0,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  Vector evaluateError(const Point3& receiverPosition,
+                       const double& ambiguity,
+                       const double& ambiguityBase,
+                       const double& iono,
+                       OptionalMatrixType HreceiverPos,
+                       OptionalMatrixType Hambiguity,
+                       OptionalMatrixType HambiguityBase,
+                       OptionalMatrixType Hiono) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseDDIonoFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(ddPhase_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(satPosBase_);
+    ar& BOOST_SERIALIZATION_NVP(refPos_);
+    ar& BOOST_SERIALIZATION_NVP(ionoCoeff_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<CarrierPhaseDDIonoFactor>
+    : public Testable<CarrierPhaseDDIonoFactor> {};
+
 }  // namespace gtsam

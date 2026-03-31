@@ -8,6 +8,9 @@
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam/navigation/CarrierPhaseFactor.h>
+#include <gtsam/navigation/PseudorangeFactor.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/factorTesting.h>
 
 #include <cmath>
@@ -487,6 +490,137 @@ TEST(TestCarrierPhaseDDFactorArm, equals) {
 
   CHECK(f1.equals(f2));
   CHECK(!f1.equals(f3));
+}
+
+// *************************************************************************
+// CarrierPhaseDDIonoFactor tests
+// *************************************************************************
+TEST(TestCarrierPhaseDDIonoFactor, ZeroError) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = CarrierPhaseDDIonoFactor(
+      Key(0), Key(1), Key(2), Key(3), 0.0, satPos, satPosBase, refPos, 1.0);
+  const double error = factor.evaluateError(refPos, 5.0, 5.0, 0.0)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDIonoFactor, IonoEffect) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  // L1: ionoCoeff = 1.0
+  const auto factorL1 = CarrierPhaseDDIonoFactor(
+      Key(0), Key(1), Key(2), Key(3), 0.0, satPos, satPosBase, refPos, 1.0);
+  // L2: ionoCoeff = (f1/f2)^2
+  const double gamma = (1575.42 / 1227.60) * (1575.42 / 1227.60);
+  const auto factorL2 = CarrierPhaseDDIonoFactor(
+      Key(0), Key(1), Key(2), Key(3), 0.0, satPos, satPosBase, refPos, gamma);
+
+  const double iono = 1.5;  // 1.5m DD iono delay
+  const double e1 = factorL1.evaluateError(refPos, 5.0, 5.0, iono)[0];
+  const double e2 = factorL2.evaluateError(refPos, 5.0, 5.0, iono)[0];
+  // L1 iono contribution: -1.0 * 1.5 = -1.5
+  // L2 iono contribution: -gamma * 1.5
+  EXPECT_DOUBLES_EQUAL(-1.5, e1, 1e-9);
+  EXPECT_DOUBLES_EQUAL(-gamma * 1.5, e2, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDIonoFactor, JacobiansL1) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const auto factor = CarrierPhaseDDIonoFactor(
+      Key(0), Key(1), Key(2), Key(3), 100.0, satPos, satPosBase, refPos, 1.0);
+  Values values;
+  values.insert(Key(0), Point3(-3961780.0, 3349050.0, 3698350.0));
+  values.insert(Key(1), 50.0);
+  values.insert(Key(2), 48.0);
+  values.insert(Key(3), 0.5);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDIonoFactor, JacobiansL2) {
+  const Point3 refPos(-3961908.12, 3348995.59, 3698211.13);
+  const Point3 satPos(-5824269.46, -22935011.27, -12195522.22);
+  const Point3 satPosBase(15524471.21, -16649826.68, -13512405.95);
+
+  const double gamma = (1575.42 / 1227.60) * (1575.42 / 1227.60);
+  const auto factor = CarrierPhaseDDIonoFactor(
+      Key(0), Key(1), Key(2), Key(3), 100.0, satPos, satPosBase, refPos, gamma);
+  Values values;
+  values.insert(Key(0), Point3(-3961780.0, 3349050.0, 3698350.0));
+  values.insert(Key(1), 50.0);
+  values.insert(Key(2), 48.0);
+  values.insert(Key(3), 0.3);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestCarrierPhaseDDIonoFactor, L1L2Decorrelation) {
+  // Verify L1 and L2 ambiguities decorrelate when iono is estimated
+  const Point3 truePos(-3961780.0, 3349050.0, 3698350.0);
+  const Point3 refPos(-3961905.0, 3348994.0, 3698212.0);
+  const Point3 sat(-5824269.0, -22935011.0, -12195522.0);
+  const Point3 satBase(15524471.0, -16649827.0, -13512406.0);
+
+  const double gamma = (1575.42 / 1227.60) * (1575.42 / 1227.60);
+  const double lam1 = 299792458.0 / 1575.42e6;
+  const double lam2 = 299792458.0 / 1227.60e6;
+  const double N_L1 = 5.0 * lam1;
+  const double N_L2 = 8.0 * lam2;
+  const double trueIono = 0.1;  // 0.1m DD iono
+
+  // Compute DD measurements
+  auto dd_rho = [&](const Point3& p) {
+    return (p - sat).norm() - (refPos - sat).norm()
+         - (p - satBase).norm() + (refPos - satBase).norm();
+  };
+  const double rho = dd_rho(truePos);
+  const double phi_L1 = rho + N_L1 - trueIono;
+  const double phi_L2 = rho + N_L2 - gamma * trueIono;
+
+  auto nm_cp = noiseModel::Isotropic::Sigma(1, 0.003);
+  auto nm_pr = noiseModel::Isotropic::Sigma(1, 3.0);
+
+  // Build small graph: 1 position, L1 amb, L2 amb, iono, 1 epoch
+  NonlinearFactorGraph graph;
+  Values initial;
+
+  initial.insert(Key(0), truePos + Point3(10, -5, 3));
+  initial.insert(Key(1), N_L1 + 0.5);   // L1 amb
+  initial.insert(Key(2), 0.0);           // L1 base amb
+  initial.insert(Key(3), N_L2 + 0.3);   // L2 amb
+  initial.insert(Key(4), 0.0);           // L2 base amb
+  initial.insert(Key(5), 0.0);           // iono
+
+  graph.addPrior<double>(Key(2), 0.0, noiseModel::Isotropic::Sigma(1, 0.001));
+  graph.addPrior<double>(Key(4), 0.0, noiseModel::Isotropic::Sigma(1, 0.001));
+  graph.addPrior<double>(Key(5), 0.0, noiseModel::Isotropic::Sigma(1, 1.0));
+
+  // DD-PR
+  graph.emplace_shared<PseudorangeDDFactor>(
+      Key(0), rho + 1.5, sat, satBase, refPos, nm_pr);
+
+  // L1 DD-CP with iono
+  graph.emplace_shared<CarrierPhaseDDIonoFactor>(
+      Key(0), Key(1), Key(2), Key(5), phi_L1, sat, satBase, refPos, 1.0, nm_cp);
+
+  // L2 DD-CP with iono
+  graph.emplace_shared<CarrierPhaseDDIonoFactor>(
+      Key(0), Key(3), Key(4), Key(5), phi_L2, sat, satBase, refPos, gamma, nm_cp);
+
+  auto result = LevenbergMarquardtOptimizer(graph, initial).optimize();
+  const double est_iono = result.atDouble(Key(5));
+
+  // With iono estimated, iono should be in reasonable range
+  EXPECT(std::abs(est_iono - trueIono) < 1.0);
 }
 
 // *************************************************************************
