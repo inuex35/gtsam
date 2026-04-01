@@ -107,7 +107,7 @@ void CarrierPhaseFactorArm::print(const std::string& s,
   Base::print(s, keyFormatter);
   gtsam::print(carrierPhase_, "carrier phase (m): ");
   gtsam::print(Vector(satPos_), "sat position (ECEF meters): ");
-  gtsam::print(satClkBias_, "sat clock bias (m): ");
+  gtsam::print(satClkBias_, "sat clock bias (s): ");
   gtsam::print(Vector(bL_), "lever arm (body frame meters): ");
   if (ecef_T_nav_) {
     ecef_T_nav_->print("ecef_T_nav:\n");
