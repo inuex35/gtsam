@@ -522,4 +522,79 @@ Vector CarrierPhaseSDFactor::evaluateError(
   return Vector1(error);
 }
 
+//***************************************************************************
+CarrierPhaseDDUndiffFactor::CarrierPhaseDDUndiffFactor(
+    const Key positionKey, const Key ambTargetKey, const Key ambRefKey,
+    const double sdPhiTarget, const double sdPhiRef,
+    const Point3& satPosTarget, const Point3& satPosRef,
+    const Point3& basePosition, const SharedNoiseModel& model)
+    : Base(model, positionKey, ambTargetKey, ambRefKey),
+      sdPhiTarget_(sdPhiTarget), sdPhiRef_(sdPhiRef),
+      satPosTarget_(satPosTarget), satPosRef_(satPosRef),
+      basePos_(basePosition) {}
+
+//***************************************************************************
+void CarrierPhaseDDUndiffFactor::print(const std::string& s,
+                                        const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(sdPhiTarget_, "SD phi target (m): ");
+  gtsam::print(sdPhiRef_, "SD phi ref (m): ");
+}
+
+//***************************************************************************
+bool CarrierPhaseDDUndiffFactor::equals(const NonlinearFactor& expected,
+                                         double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  if (e == nullptr || !Base::equals(*e, tol)) return false;
+  if (!traits<double>::Equals(sdPhiTarget_, e->sdPhiTarget_, tol)) return false;
+  if (!traits<double>::Equals(sdPhiRef_, e->sdPhiRef_, tol)) return false;
+  if (!traits<Point3>::Equals(satPosTarget_, e->satPosTarget_, tol)) return false;
+  if (!traits<Point3>::Equals(satPosRef_, e->satPosRef_, tol)) return false;
+  if (!traits<Point3>::Equals(basePos_, e->basePos_, tol)) return false;
+  return true;
+}
+
+//***************************************************************************
+Vector CarrierPhaseDDUndiffFactor::evaluateError(
+    const Point3& position, const double& ambTarget, const double& ambRef,
+    OptionalMatrixType Hposition, OptionalMatrixType HambTarget,
+    OptionalMatrixType HambRef) const {
+  // SD residuals computed from undifferenced observations:
+  // sd_resid = (|pos - sat| - |base - sat|) + N - sd_phi
+  const Vector3 d_target = position - satPosTarget_;
+  const double r_target = d_target.norm();
+  const double r_base_target = (basePos_ - satPosTarget_).norm();
+  const double sd_resid_target = (r_target - r_base_target) + ambTarget - sdPhiTarget_;
+
+  const Vector3 d_ref = position - satPosRef_;
+  const double r_ref = d_ref.norm();
+  const double r_base_ref = (basePos_ - satPosRef_).norm();
+  const double sd_resid_ref = (r_ref - r_base_ref) + ambRef - sdPhiRef_;
+
+  // DD = SD_target - SD_ref
+  const double error = sd_resid_target - sd_resid_ref;
+
+  if (Hposition) {
+    const bool ok = r_target > std::numeric_limits<double>::epsilon() &&
+                    r_ref > std::numeric_limits<double>::epsilon();
+    if (!ok) {
+      *Hposition = Matrix13::Zero();
+    } else {
+      const Matrix13 u_target = (d_target / r_target).transpose();
+      const Matrix13 u_ref = (d_ref / r_ref).transpose();
+      *Hposition = u_target - u_ref;
+    }
+  }
+
+  if (HambTarget) {
+    *HambTarget = I_1x1;
+  }
+
+  if (HambRef) {
+    *HambRef = -I_1x1;
+  }
+
+  return Vector1(error);
+}
+
 }  // namespace gtsam

@@ -621,4 +621,104 @@ template <>
 struct traits<CarrierPhaseSDFactor>
     : public Testable<CarrierPhaseSDFactor> {};
 
+/**
+ * GREAT-FGO style DD carrier phase factor.
+ *
+ * Computes DD residual from undifferenced observations internally.
+ * Takes raw SD carrier phase for target and reference satellite.
+ * SD ambiguity parameters are correctly aligned with observations.
+ *
+ * Internal computation:
+ *   sd_resid_target = |pos - sat_target| - |base - sat_target| + N_target - sd_phi_target
+ *   sd_resid_ref    = |pos - sat_ref|    - |base - sat_ref|    + N_ref    - sd_phi_ref
+ *   dd_error = sd_resid_target - sd_resid_ref
+ *
+ * Keys: (Point3 position, double N_target, double N_ref)
+ * Fixed: satellite positions, base position, SD carrier phases.
+ *
+ * N_target and N_ref are SD ambiguities initialized as:
+ *   N = sd_phi - (|approx - sat| - |base - sat|)
+ * which gives N ≈ true SD ambiguity.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT CarrierPhaseDDUndiffFactor
+    : public NoiseModelFactorN<Point3, double, double> {
+ private:
+  typedef NoiseModelFactorN<Point3, double, double> Base;
+
+  double sdPhiTarget_;    ///< SD carrier phase for target satellite (meters).
+  double sdPhiRef_;       ///< SD carrier phase for reference satellite (meters).
+  Point3 satPosTarget_;   ///< Target satellite ECEF position.
+  Point3 satPosRef_;      ///< Reference satellite ECEF position.
+  Point3 basePos_;        ///< Base station ECEF position.
+
+ public:
+  using Base::evaluateError;
+
+  typedef std::shared_ptr<CarrierPhaseDDUndiffFactor> shared_ptr;
+  typedef CarrierPhaseDDUndiffFactor This;
+
+  CarrierPhaseDDUndiffFactor()
+      : sdPhiTarget_(0), sdPhiRef_(0),
+        satPosTarget_(0,0,0), satPosRef_(0,0,0), basePos_(0,0,0) {}
+
+  virtual ~CarrierPhaseDDUndiffFactor() = default;
+
+  /**
+   * @param positionKey Rover Point3 ECEF position.
+   * @param ambTargetKey SD ambiguity for target satellite (meters).
+   * @param ambRefKey SD ambiguity for reference satellite (meters).
+   * @param sdPhiTarget SD carrier phase for target (meters): L_rov - L_base.
+   * @param sdPhiRef SD carrier phase for ref (meters): L_rov - L_base.
+   * @param satPosTarget Target satellite ECEF position.
+   * @param satPosRef Reference satellite ECEF position.
+   * @param basePosition Base station ECEF position.
+   * @param model 1-D noise model.
+   */
+  CarrierPhaseDDUndiffFactor(
+      Key positionKey, Key ambTargetKey, Key ambRefKey,
+      double sdPhiTarget, double sdPhiRef,
+      const Point3& satPosTarget, const Point3& satPosRef,
+      const Point3& basePosition,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  Vector evaluateError(const Point3& position,
+                       const double& ambTarget,
+                       const double& ambRef,
+                       OptionalMatrixType Hposition,
+                       OptionalMatrixType HambTarget,
+                       OptionalMatrixType HambRef) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseDDUndiffFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(sdPhiTarget_);
+    ar& BOOST_SERIALIZATION_NVP(sdPhiRef_);
+    ar& BOOST_SERIALIZATION_NVP(satPosTarget_);
+    ar& BOOST_SERIALIZATION_NVP(satPosRef_);
+    ar& BOOST_SERIALIZATION_NVP(basePos_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<CarrierPhaseDDUndiffFactor>
+    : public Testable<CarrierPhaseDDUndiffFactor> {};
+
 }  // namespace gtsam

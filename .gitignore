@@ -33,3 +33,6 @@ doc/#*.lyx#
 conductor/
 .ccache/
 gtsam_unstable/timing/data/
+PPC-Dataset.zip
+gnss_test_data/
+submodules/

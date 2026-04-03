@@ -819,6 +819,28 @@ virtual class CarrierPhaseSDFactor : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+virtual class CarrierPhaseDDUndiffFactor : gtsam::NonlinearFactor {
+  CarrierPhaseDDUndiffFactor(gtsam::Key positionKey,
+                              gtsam::Key ambTargetKey,
+                              gtsam::Key ambRefKey,
+                              double sdPhiTarget,
+                              double sdPhiRef,
+                              const gtsam::Point3& satPosTarget,
+                              const gtsam::Point3& satPosRef,
+                              const gtsam::Point3& basePosition,
+                              const gtsam::noiseModel::Base* model);
+
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  gtsam::Vector evaluateError(const gtsam::Point3& position,
+                              const double& ambTarget,
+                              const double& ambRef) const;
+
+  void serialize() const;
+};
+
 #include <gtsam/navigation/BarometricFactor.h>
 virtual class BarometricFactor : gtsam::NonlinearFactor {
   BarometricFactor();
