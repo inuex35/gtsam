@@ -718,26 +718,6 @@ virtual class CarrierPhaseFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
-virtual class CarrierPhaseDDFactor : gtsam::NonlinearFactor {
-  CarrierPhaseDDFactor(gtsam::Key receiverPositionKey,
-                        gtsam::Key ambiguityKey,
-                        gtsam::Key ambiguityBaseKey,
-                        double ddCarrierPhase,
-                        const gtsam::Point3& satellitePosition,
-                        const gtsam::Point3& baseSatellitePosition,
-                        const gtsam::Point3& referencePosition,
-                        const gtsam::noiseModel::Base* model);
-
-  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
-                                gtsam::DefaultKeyFormatter) const;
-  bool equals(const gtsam::NonlinearFactor& expected, double tol);
-
-  gtsam::Vector evaluateError(const gtsam::Point3& receiverPosition,
-                              const double& ambiguity,
-                              const double& ambiguityBase) const;
-
-  void serialize() const;
-};
 
 virtual class CarrierPhaseDDFactorArm : gtsam::NonlinearFactor {
   CarrierPhaseDDFactorArm(gtsam::Key poseKey,
@@ -819,8 +799,8 @@ virtual class CarrierPhaseSDFactor : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
-virtual class CarrierPhaseDDUndiffFactor : gtsam::NonlinearFactor {
-  CarrierPhaseDDUndiffFactor(gtsam::Key positionKey,
+virtual class CarrierPhaseDDFactor : gtsam::NonlinearFactor {
+  CarrierPhaseDDFactor(gtsam::Key positionKey,
                               gtsam::Key ambTargetKey,
                               gtsam::Key ambRefKey,
                               double sdPhiTarget,
