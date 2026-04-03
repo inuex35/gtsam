@@ -536,4 +536,89 @@ template <>
 struct traits<CarrierPhaseDDIonoFactor>
     : public Testable<CarrierPhaseDDIonoFactor> {};
 
+/**
+ * Single-differenced carrier phase factor (RTKLIB style).
+ *
+ * SD observation = L_rover - L_base for each satellite.
+ * Estimates SD ambiguity per satellite. DD formed at LAMBDA time.
+ *
+ * The error model:
+ *   error = (|pos - sat| - |base - sat|) + c * dt + ambiguity - sdPhase
+ *
+ * Keys: (Point3 rover_position, double clock_bias, double sd_ambiguity)
+ * Fixed: satellite position, base station position, SD carrier phase.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT CarrierPhaseSDFactor
+    : public NoiseModelFactorN<Point3, double, double> {
+ private:
+  typedef NoiseModelFactorN<Point3, double, double> Base;
+
+  double sdPhase_;   ///< SD carrier phase measurement in meters.
+  Point3 satPos_;    ///< Satellite ECEF position in meters.
+  Point3 basePos_;   ///< Base station ECEF position in meters.
+
+ public:
+  using Base::evaluateError;
+
+  typedef std::shared_ptr<CarrierPhaseSDFactor> shared_ptr;
+  typedef CarrierPhaseSDFactor This;
+
+  CarrierPhaseSDFactor()
+      : sdPhase_(0.0), satPos_(0, 0, 0), basePos_(0, 0, 0) {}
+
+  virtual ~CarrierPhaseSDFactor() = default;
+
+  /**
+   * @param positionKey Rover Point3 ECEF position node.
+   * @param clockKey Rover-base clock bias (seconds).
+   * @param ambiguityKey SD ambiguity (meters).
+   * @param sdCarrierPhase SD carrier phase measurement (meters).
+   * @param satellitePosition Satellite ECEF position (meters).
+   * @param basePosition Base station ECEF position (meters).
+   * @param model 1-D noise model.
+   */
+  CarrierPhaseSDFactor(
+      Key positionKey, Key clockKey, Key ambiguityKey,
+      double sdCarrierPhase, const Point3& satellitePosition,
+      const Point3& basePosition,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  Vector evaluateError(const Point3& position,
+                       const double& clockBias,
+                       const double& ambiguity,
+                       OptionalMatrixType Hposition,
+                       OptionalMatrixType HclockBias,
+                       OptionalMatrixType Hambiguity) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseSDFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(sdPhase_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(basePos_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<CarrierPhaseSDFactor>
+    : public Testable<CarrierPhaseSDFactor> {};
+
 }  // namespace gtsam

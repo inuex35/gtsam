@@ -458,4 +458,68 @@ Vector CarrierPhaseDDIonoFactor::evaluateError(
   return Vector1(error);
 }
 
+//***************************************************************************
+CarrierPhaseSDFactor::CarrierPhaseSDFactor(
+    const Key positionKey, const Key clockKey, const Key ambiguityKey,
+    const double sdCarrierPhase, const Point3& satellitePosition,
+    const Point3& basePosition, const SharedNoiseModel& model)
+    : Base(model, positionKey, clockKey, ambiguityKey),
+      sdPhase_(sdCarrierPhase),
+      satPos_(satellitePosition),
+      basePos_(basePosition) {}
+
+//***************************************************************************
+void CarrierPhaseSDFactor::print(const std::string& s,
+                                 const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(sdPhase_, "SD carrier phase (m): ");
+  gtsam::print(Vector(satPos_), "sat position (ECEF meters): ");
+  gtsam::print(Vector(basePos_), "base position (ECEF meters): ");
+}
+
+//***************************************************************************
+bool CarrierPhaseSDFactor::equals(const NonlinearFactor& expected,
+                                  double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  if (e == nullptr || !Base::equals(*e, tol)) return false;
+  if (!traits<double>::Equals(sdPhase_, e->sdPhase_, tol)) return false;
+  if (!traits<Point3>::Equals(satPos_, e->satPos_, tol)) return false;
+  if (!traits<Point3>::Equals(basePos_, e->basePos_, tol)) return false;
+  return true;
+}
+
+//***************************************************************************
+Vector CarrierPhaseSDFactor::evaluateError(
+    const Point3& position, const double& clockBias,
+    const double& ambiguity, OptionalMatrixType Hposition,
+    OptionalMatrixType HclockBias, OptionalMatrixType Hambiguity) const {
+  // SD range: |rover - sat| - |base - sat|
+  const Vector3 diff_rov = position - satPos_;
+  const double rho_rov = diff_rov.norm();
+  const double rho_base = (basePos_ - satPos_).norm();
+  const double sd_range = rho_rov - rho_base;
+
+  // error = sd_range + c*dt + N - sd_phi
+  constexpr double CLIGHT = 299792458.0;
+  const double error = sd_range + CLIGHT * clockBias + ambiguity - sdPhase_;
+
+  if (Hposition) {
+    if (rho_rov < std::numeric_limits<double>::epsilon()) {
+      *Hposition = Matrix13::Zero();
+    } else {
+      *Hposition = (diff_rov / rho_rov).transpose();
+    }
+  }
+
+  if (HclockBias) {
+    *HclockBias = I_1x1 * CLIGHT;
+  }
+
+  if (Hambiguity) {
+    *Hambiguity = I_1x1;
+  }
+
+  return Vector1(error);
+}
+
 }  // namespace gtsam
