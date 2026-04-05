@@ -301,90 +301,6 @@ Vector CarrierPhaseDDFactorArm::evaluateError(
 }
 
 //***************************************************************************
-CarrierPhaseDDIonoFactor::CarrierPhaseDDIonoFactor(
-    const Key receiverPositionKey, const Key ambiguityKey,
-    const Key ambiguityBaseKey, const Key ionoKey,
-    const double ddCarrierPhase, const Point3& satellitePosition,
-    const Point3& baseSatellitePosition, const Point3& referencePosition,
-    const double ionosphereCoefficient, const SharedNoiseModel& model)
-    : Base(model, receiverPositionKey, ambiguityKey, ambiguityBaseKey, ionoKey),
-      ddPhase_(ddCarrierPhase),
-      satPos_(satellitePosition),
-      satPosBase_(baseSatellitePosition),
-      refPos_(referencePosition),
-      ionoCoeff_(ionosphereCoefficient) {}
-
-//***************************************************************************
-void CarrierPhaseDDIonoFactor::print(const std::string& s,
-                                     const KeyFormatter& keyFormatter) const {
-  Base::print(s, keyFormatter);
-  gtsam::print(ddPhase_, "DD carrier phase (m): ");
-  gtsam::print(Vector(satPos_), "target sat position (ECEF meters): ");
-  gtsam::print(Vector(satPosBase_), "base sat position (ECEF meters): ");
-  gtsam::print(Vector(refPos_), "reference position (ECEF meters): ");
-  gtsam::print(ionoCoeff_, "iono coefficient: ");
-}
-
-//***************************************************************************
-bool CarrierPhaseDDIonoFactor::equals(const NonlinearFactor& expected,
-                                      double tol) const {
-  const This* e = dynamic_cast<const This*>(&expected);
-  if (e == nullptr || !Base::equals(*e, tol)) return false;
-  if (!traits<double>::Equals(ddPhase_, e->ddPhase_, tol)) return false;
-  if (!traits<Point3>::Equals(satPos_, e->satPos_, tol)) return false;
-  if (!traits<Point3>::Equals(satPosBase_, e->satPosBase_, tol)) return false;
-  if (!traits<Point3>::Equals(refPos_, e->refPos_, tol)) return false;
-  if (!traits<double>::Equals(ionoCoeff_, e->ionoCoeff_, tol)) return false;
-  return true;
-}
-
-//***************************************************************************
-Vector CarrierPhaseDDIonoFactor::evaluateError(
-    const Point3& receiverPosition, const double& ambiguity,
-    const double& ambiguityBase, const double& iono,
-    OptionalMatrixType HreceiverPos, OptionalMatrixType Hambiguity,
-    OptionalMatrixType HambiguityBase, OptionalMatrixType Hiono) const {
-  const Vector3 diff_rov = receiverPosition - satPos_;
-  const double rho_rov = diff_rov.norm();
-  const Vector3 diff_rov_base = receiverPosition - satPosBase_;
-  const double rho_rov_base = diff_rov_base.norm();
-
-  const double rho_ref = (refPos_ - satPos_).norm();
-  const double rho_ref_base = (refPos_ - satPosBase_).norm();
-
-  const double dd_rho = rho_rov - rho_ref - rho_rov_base + rho_ref_base;
-  const double error =
-      dd_rho + ambiguity - ambiguityBase - ionoCoeff_ * iono - ddPhase_;
-
-  if (HreceiverPos) {
-    const bool range_ok =
-        rho_rov > std::numeric_limits<double>::epsilon() &&
-        rho_rov_base > std::numeric_limits<double>::epsilon();
-    if (!range_ok) {
-      *HreceiverPos = Matrix13::Zero();
-    } else {
-      const Matrix13 u = (diff_rov / rho_rov).transpose();
-      const Matrix13 u_base = (diff_rov_base / rho_rov_base).transpose();
-      *HreceiverPos = u - u_base;
-    }
-  }
-
-  if (Hambiguity) {
-    *Hambiguity = I_1x1;
-  }
-
-  if (HambiguityBase) {
-    *HambiguityBase = -I_1x1;
-  }
-
-  if (Hiono) {
-    *Hiono = -I_1x1 * ionoCoeff_;
-  }
-
-  return Vector1(error);
-}
-
-//***************************************************************************
 CarrierPhaseSDFactor::CarrierPhaseSDFactor(
     const Key positionKey, const Key clockKey, const Key ambiguityKey,
     const double sdCarrierPhase, const Point3& satellitePosition,
@@ -451,13 +367,16 @@ Vector CarrierPhaseSDFactor::evaluateError(
 //***************************************************************************
 CarrierPhaseDDFactor::CarrierPhaseDDFactor(
     const Key positionKey, const Key ambTargetKey, const Key ambRefKey,
+    const Key ionoKey,
     const double sdPhiTarget, const double sdPhiRef,
     const Point3& satPosTarget, const Point3& satPosRef,
-    const Point3& basePosition, const SharedNoiseModel& model)
-    : Base(model, positionKey, ambTargetKey, ambRefKey),
+    const Point3& basePosition,
+    const double ionosphereCoefficient,
+    const SharedNoiseModel& model)
+    : Base(model, positionKey, ambTargetKey, ambRefKey, ionoKey),
       sdPhiTarget_(sdPhiTarget), sdPhiRef_(sdPhiRef),
       satPosTarget_(satPosTarget), satPosRef_(satPosRef),
-      basePos_(basePosition) {}
+      basePos_(basePosition), ionoCoeff_(ionosphereCoefficient) {}
 
 //***************************************************************************
 void CarrierPhaseDDFactor::print(const std::string& s,
@@ -483,10 +402,11 @@ bool CarrierPhaseDDFactor::equals(const NonlinearFactor& expected,
 //***************************************************************************
 Vector CarrierPhaseDDFactor::evaluateError(
     const Point3& position, const double& ambTarget, const double& ambRef,
+    const double& ddIono,
     OptionalMatrixType Hposition, OptionalMatrixType HambTarget,
-    OptionalMatrixType HambRef) const {
-  // SD residuals computed from undifferenced observations:
-  // sd_resid = (|pos - sat| - |base - sat|) + N - sd_phi
+    OptionalMatrixType HambRef, OptionalMatrixType Hiono) const {
+  // SD residuals:
+  // sd_resid = (|pos - sat| - |base - sat|) + N + ionoCoeff*iono - sd_phi
   const Vector3 d_target = position - satPosTarget_;
   const double r_target = d_target.norm();
   const double r_base_target = (basePos_ - satPosTarget_).norm();
@@ -497,8 +417,8 @@ Vector CarrierPhaseDDFactor::evaluateError(
   const double r_base_ref = (basePos_ - satPosRef_).norm();
   const double sd_resid_ref = (r_ref - r_base_ref) + ambRef - sdPhiRef_;
 
-  // DD = SD_target - SD_ref
-  const double error = sd_resid_target - sd_resid_ref;
+  // DD = SD_target - SD_ref + ionoCoeff * dd_iono
+  const double error = sd_resid_target - sd_resid_ref + ionoCoeff_ * ddIono;
 
   if (Hposition) {
     const bool ok = r_target > std::numeric_limits<double>::epsilon() &&
@@ -518,6 +438,10 @@ Vector CarrierPhaseDDFactor::evaluateError(
 
   if (HambRef) {
     *HambRef = -I_1x1;
+  }
+
+  if (Hiono) {
+    *Hiono = Vector1(ionoCoeff_).transpose();
   }
 
   return Vector1(error);

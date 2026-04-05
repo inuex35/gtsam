@@ -336,20 +336,23 @@ Vector DifferentialPseudorangeFactorArm::evaluateError(
 
 //***************************************************************************
 PseudorangeDDFactor::PseudorangeDDFactor(
-    const Key receiverPositionKey, const double ddPseudorange,
+    const Key receiverPositionKey, const Key ionoKey,
+    const double sdPrTarget, const double sdPrRef,
     const Point3& satellitePosition, const Point3& baseSatellitePosition,
-    const Point3& referencePosition, const SharedNoiseModel& model)
-    : Base(model, receiverPositionKey),
-      ddPseudorange_(ddPseudorange),
+    const Point3& referencePosition,
+    const double ionosphereCoefficient,
+    const SharedNoiseModel& model)
+    : Base(model, receiverPositionKey, ionoKey),
+      sdPrTarget_(sdPrTarget), sdPrRef_(sdPrRef),
       satPos_(satellitePosition),
       satPosBase_(baseSatellitePosition),
-      refPos_(referencePosition) {}
+      refPos_(referencePosition),
+      ionoCoeff_(ionosphereCoefficient) {}
 
 //***************************************************************************
 void PseudorangeDDFactor::print(const std::string& s,
                                 const KeyFormatter& keyFormatter) const {
   Base::print(s, keyFormatter);
-  gtsam::print(ddPseudorange_, "DD pseudorange (m): ");
   gtsam::print(Vector(satPos_), "target sat position (ECEF meters): ");
   gtsam::print(Vector(satPosBase_), "base sat position (ECEF meters): ");
   gtsam::print(Vector(refPos_), "reference position (ECEF meters): ");
@@ -360,8 +363,8 @@ bool PseudorangeDDFactor::equals(const NonlinearFactor& expected,
                                  double tol) const {
   const This* e = dynamic_cast<const This*>(&expected);
   if (e == nullptr || !Base::equals(*e, tol)) return false;
-  if (!traits<double>::Equals(ddPseudorange_, e->ddPseudorange_, tol))
-    return false;
+  if (!traits<double>::Equals(sdPrTarget_, e->sdPrTarget_, tol)) return false;
+  if (!traits<double>::Equals(sdPrRef_, e->sdPrRef_, tol)) return false;
   if (!traits<Point3>::Equals(satPos_, e->satPos_, tol)) return false;
   if (!traits<Point3>::Equals(satPosBase_, e->satPosBase_, tol)) return false;
   if (!traits<Point3>::Equals(refPos_, e->refPos_, tol)) return false;
@@ -370,7 +373,8 @@ bool PseudorangeDDFactor::equals(const NonlinearFactor& expected,
 
 //***************************************************************************
 Vector PseudorangeDDFactor::evaluateError(
-    const Point3& receiverPosition, OptionalMatrixType HreceiverPos) const {
+    const Point3& receiverPosition, const double& ddIono,
+    OptionalMatrixType HreceiverPos, OptionalMatrixType Hiono) const {
   const Vector3 diff_rov = receiverPosition - satPos_;
   const double rho_rov = diff_rov.norm();
   const Vector3 diff_rov_base = receiverPosition - satPosBase_;
@@ -380,7 +384,8 @@ Vector PseudorangeDDFactor::evaluateError(
   const double rho_ref_base = (refPos_ - satPosBase_).norm();
 
   const double dd_rho = rho_rov - rho_ref - rho_rov_base + rho_ref_base;
-  const double error = dd_rho - ddPseudorange_;
+  const double dd_pr = sdPrTarget_ - sdPrRef_;
+  const double error = dd_rho + ionoCoeff_ * ddIono - dd_pr;
 
   if (HreceiverPos) {
     const bool range_ok =
@@ -393,6 +398,10 @@ Vector PseudorangeDDFactor::evaluateError(
       const Matrix13 u_base = (diff_rov_base / rho_rov_base).transpose();
       *HreceiverPos = u - u_base;
     }
+  }
+
+  if (Hiono) {
+    *Hiono = Vector1(ionoCoeff_).transpose();
   }
 
   return Vector1(error);
@@ -498,77 +507,6 @@ Vector PseudorangeDDFactorArm::evaluateError(
       H_ecef.block<1, 3>(0, 3) = dd_u * ecef_R_body;
       *H_pose = has_nav ? H_ecef * H_compose : H_ecef;
     }
-  }
-
-  return Vector1(error);
-}
-
-//***************************************************************************
-// PseudorangeDDIonoFactor
-//***************************************************************************
-
-PseudorangeDDIonoFactor::PseudorangeDDIonoFactor(
-    Key receiverPositionKey, Key ionoKey, double ddPseudorange,
-    const Point3& satellitePosition, const Point3& baseSatellitePosition,
-    const Point3& referencePosition, double ionosphereCoefficient,
-    const SharedNoiseModel& model)
-    : Base(model, receiverPositionKey, ionoKey),
-      ddPseudorange_(ddPseudorange),
-      satPos_(satellitePosition),
-      satPosBase_(baseSatellitePosition),
-      refPos_(referencePosition),
-      ionoCoeff_(ionosphereCoefficient) {}
-
-void PseudorangeDDIonoFactor::print(const std::string& s,
-                                     const KeyFormatter& keyFormatter) const {
-  std::cout << (s.empty() ? s : s + " ") << "PseudorangeDDIonoFactor on "
-            << keyFormatter(key<1>()) << ", " << keyFormatter(key<2>())
-            << "\n  DD pseudorange: " << ddPseudorange_
-            << "\n  ionoCoeff: " << ionoCoeff_ << "\n";
-  noiseModel_->print("  noise model: ");
-}
-
-bool PseudorangeDDIonoFactor::equals(const NonlinearFactor& expected,
-                                      double tol) const {
-  const auto* e = dynamic_cast<const PseudorangeDDIonoFactor*>(&expected);
-  return e != nullptr && Base::equals(*e, tol) &&
-         std::fabs(ddPseudorange_ - e->ddPseudorange_) <= tol &&
-         traits<Point3>::Equals(satPos_, e->satPos_, tol) &&
-         traits<Point3>::Equals(satPosBase_, e->satPosBase_, tol) &&
-         traits<Point3>::Equals(refPos_, e->refPos_, tol) &&
-         std::fabs(ionoCoeff_ - e->ionoCoeff_) <= tol;
-}
-
-Vector PseudorangeDDIonoFactor::evaluateError(
-    const Point3& receiverPosition, const double& iono,
-    OptionalMatrixType HreceiverPos, OptionalMatrixType Hiono) const {
-  const Vector3 diff_rov = receiverPosition - satPos_;
-  const double rho_rov = diff_rov.norm();
-  const Vector3 diff_rov_base = receiverPosition - satPosBase_;
-  const double rho_rov_base = diff_rov_base.norm();
-
-  const double rho_ref = (refPos_ - satPos_).norm();
-  const double rho_ref_base = (refPos_ - satPosBase_).norm();
-
-  const double dd_rho = rho_rov - rho_ref - rho_rov_base + rho_ref_base;
-  // Pseudorange: code is delayed by ionosphere (positive sign)
-  const double error = dd_rho + ionoCoeff_ * iono - ddPseudorange_;
-
-  if (HreceiverPos) {
-    const bool range_ok =
-        rho_rov > std::numeric_limits<double>::epsilon() &&
-        rho_rov_base > std::numeric_limits<double>::epsilon();
-    if (!range_ok) {
-      *HreceiverPos = Matrix13::Zero();
-    } else {
-      const Matrix13 u = (diff_rov / rho_rov).transpose();
-      const Matrix13 u_base = (diff_rov_base / rho_rov_base).transpose();
-      *HreceiverPos = u - u_base;
-    }
-  }
-
-  if (Hiono) {
-    *Hiono = I_1x1 * ionoCoeff_;
   }
 
   return Vector1(error);

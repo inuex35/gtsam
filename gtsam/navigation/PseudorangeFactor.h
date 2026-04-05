@@ -497,14 +497,16 @@ struct traits<DifferentialPseudorangeFactorArm>
  * @ingroup navigation
  */
 class GTSAM_EXPORT PseudorangeDDFactor
-    : public NoiseModelFactorN<Point3> {
+    : public NoiseModelFactorN<Point3, double> {
  private:
-  typedef NoiseModelFactorN<Point3> Base;
+  typedef NoiseModelFactorN<Point3, double> Base;
 
-  double ddPseudorange_;  ///< DD pseudorange measurement in meters.
+  double sdPrTarget_;     ///< SD pseudorange for target satellite (meters).
+  double sdPrRef_;        ///< SD pseudorange for reference satellite (meters).
   Point3 satPos_;         ///< Target satellite ECEF position in meters.
   Point3 satPosBase_;     ///< Base satellite ECEF position in meters.
   Point3 refPos_;         ///< Reference station ECEF position in meters.
+  double ionoCoeff_;      ///< Ionosphere coefficient. 0=no iono, +1=L1 code.
 
  public:
   using Base::evaluateError;
@@ -514,25 +516,33 @@ class GTSAM_EXPORT PseudorangeDDFactor
 
   /** default constructor - only use for serialization */
   PseudorangeDDFactor()
-      : ddPseudorange_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
-        refPos_(0, 0, 0) {}
+      : sdPrTarget_(0.0), sdPrRef_(0.0),
+        satPos_(0, 0, 0), satPosBase_(0, 0, 0),
+        refPos_(0, 0, 0), ionoCoeff_(0.0) {}
 
   virtual ~PseudorangeDDFactor() = default;
 
   /**
-   * Construct a PseudorangeDDFactor.
+   * Unified DD pseudorange factor with optional ionosphere.
+   *
+   * error = dd_rho + ionoCoeff * dd_iono - dd_pr
    *
    * @param receiverPositionKey Rover Point3 ECEF position node.
-   * @param ddPseudorange DD pseudorange measurement in meters.
+   * @param ionoKey DD ionosphere delay (meters). Ignored if ionoCoeff=0.
+   * @param sdPrTarget SD pseudorange for target (meters): P_rov - P_base.
+   * @param sdPrRef SD pseudorange for ref (meters): P_rov - P_base.
    * @param satellitePosition Target satellite ECEF position in meters.
    * @param baseSatellitePosition Base satellite ECEF position in meters.
    * @param referencePosition Reference station ECEF position in meters.
+   * @param ionosphereCoefficient Iono coefficient: 0=none, +1=L1 code.
    * @param model 1-D noise model.
    */
   PseudorangeDDFactor(
-      Key receiverPositionKey, double ddPseudorange,
+      Key receiverPositionKey, Key ionoKey,
+      double sdPrTarget, double sdPrRef,
       const Point3& satellitePosition, const Point3& baseSatellitePosition,
       const Point3& referencePosition,
+      double ionosphereCoefficient = 0.0,
       const SharedNoiseModel& model = noiseModel::Unit::Create(1));
 
   gtsam::NonlinearFactor::shared_ptr clone() const override {
@@ -547,7 +557,9 @@ class GTSAM_EXPORT PseudorangeDDFactor
               double tol = 1e-9) const override;
 
   Vector evaluateError(const Point3& receiverPosition,
-                       OptionalMatrixType HreceiverPos) const override;
+                       const double& ddIono,
+                       OptionalMatrixType HreceiverPos,
+                       OptionalMatrixType Hiono) const override;
 
  private:
 #if GTSAM_ENABLE_BOOST_SERIALIZATION
@@ -555,10 +567,12 @@ class GTSAM_EXPORT PseudorangeDDFactor
   template <class ARCHIVE>
   void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
     ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(PseudorangeDDFactor::Base);
-    ar& BOOST_SERIALIZATION_NVP(ddPseudorange_);
+    ar& BOOST_SERIALIZATION_NVP(sdPrTarget_);
+    ar& BOOST_SERIALIZATION_NVP(sdPrRef_);
     ar& BOOST_SERIALIZATION_NVP(satPos_);
     ar& BOOST_SERIALIZATION_NVP(satPosBase_);
     ar& BOOST_SERIALIZATION_NVP(refPos_);
+    ar& BOOST_SERIALIZATION_NVP(ionoCoeff_);
   }
 #endif
 };
@@ -679,77 +693,5 @@ class GTSAM_EXPORT PseudorangeDDFactorArm
 template <>
 struct traits<PseudorangeDDFactorArm>
     : public Testable<PseudorangeDDFactorArm> {};
-
-/**
- * Double-differenced pseudorange factor with ionosphere estimation.
- *
- * error = dd_rho + ionoCoeff * iono - dd_pr
- *
- * where iono is the DD ionospheric delay at L1 (meters),
- * and ionoCoeff = 1.0 for L1, (f1/f2)^2 for L2.
- */
-class GTSAM_EXPORT PseudorangeDDIonoFactor
-    : public NoiseModelFactorN<Point3, double> {
- private:
-  typedef NoiseModelFactorN<Point3, double> Base;
-
-  double ddPseudorange_;
-  Point3 satPos_;
-  Point3 satPosBase_;
-  Point3 refPos_;
-  double ionoCoeff_;
-
- public:
-  using Base::evaluateError;
-  typedef std::shared_ptr<PseudorangeDDIonoFactor> shared_ptr;
-  typedef PseudorangeDDIonoFactor This;
-
-  PseudorangeDDIonoFactor()
-      : ddPseudorange_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
-        refPos_(0, 0, 0), ionoCoeff_(1.0) {}
-
-  virtual ~PseudorangeDDIonoFactor() = default;
-
-  PseudorangeDDIonoFactor(
-      Key receiverPositionKey, Key ionoKey, double ddPseudorange,
-      const Point3& satellitePosition, const Point3& baseSatellitePosition,
-      const Point3& referencePosition, double ionosphereCoefficient = 1.0,
-      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
-
-  gtsam::NonlinearFactor::shared_ptr clone() const override {
-    return std::static_pointer_cast<gtsam::NonlinearFactor>(
-        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
-  }
-
-  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
-                                            DefaultKeyFormatter) const override;
-
-  bool equals(const NonlinearFactor& expected,
-              double tol = 1e-9) const override;
-
-  Vector evaluateError(const Point3& receiverPosition,
-                       const double& iono,
-                       OptionalMatrixType HreceiverPos,
-                       OptionalMatrixType Hiono) const override;
-
- private:
-#if GTSAM_ENABLE_BOOST_SERIALIZATION
-  friend class boost::serialization::access;
-  template <class ARCHIVE>
-  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
-    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(PseudorangeDDIonoFactor::Base);
-    ar& BOOST_SERIALIZATION_NVP(ddPseudorange_);
-    ar& BOOST_SERIALIZATION_NVP(satPos_);
-    ar& BOOST_SERIALIZATION_NVP(satPosBase_);
-    ar& BOOST_SERIALIZATION_NVP(refPos_);
-    ar& BOOST_SERIALIZATION_NVP(ionoCoeff_);
-  }
-#endif
-};
-
-/// traits
-template <>
-struct traits<PseudorangeDDIonoFactor>
-    : public Testable<PseudorangeDDIonoFactor> {};
 
 }  // namespace gtsam
