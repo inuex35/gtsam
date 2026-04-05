@@ -630,6 +630,26 @@ virtual class PseudorangeDDFactor : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+virtual class PseudorangeDDIonoFactor : gtsam::NonlinearFactor {
+  PseudorangeDDIonoFactor(gtsam::Key receiverPositionKey,
+                           gtsam::Key ionoKey,
+                           double ddPseudorange,
+                           const gtsam::Point3& satellitePosition,
+                           const gtsam::Point3& baseSatellitePosition,
+                           const gtsam::Point3& referencePosition,
+                           double ionosphereCoefficient,
+                           const gtsam::noiseModel::Base* model);
+
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  gtsam::Vector evaluateError(const gtsam::Point3& receiverPosition,
+                               double iono) const;
+
+  void serialize() const;
+};
+
 virtual class PseudorangeDDFactorArm : gtsam::NonlinearFactor {
   PseudorangeDDFactorArm(gtsam::Key poseKey,
                           double ddPseudorange,

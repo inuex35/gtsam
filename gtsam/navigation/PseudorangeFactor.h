@@ -680,4 +680,76 @@ template <>
 struct traits<PseudorangeDDFactorArm>
     : public Testable<PseudorangeDDFactorArm> {};
 
+/**
+ * Double-differenced pseudorange factor with ionosphere estimation.
+ *
+ * error = dd_rho + ionoCoeff * iono - dd_pr
+ *
+ * where iono is the DD ionospheric delay at L1 (meters),
+ * and ionoCoeff = 1.0 for L1, (f1/f2)^2 for L2.
+ */
+class GTSAM_EXPORT PseudorangeDDIonoFactor
+    : public NoiseModelFactorN<Point3, double> {
+ private:
+  typedef NoiseModelFactorN<Point3, double> Base;
+
+  double ddPseudorange_;
+  Point3 satPos_;
+  Point3 satPosBase_;
+  Point3 refPos_;
+  double ionoCoeff_;
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<PseudorangeDDIonoFactor> shared_ptr;
+  typedef PseudorangeDDIonoFactor This;
+
+  PseudorangeDDIonoFactor()
+      : ddPseudorange_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
+        refPos_(0, 0, 0), ionoCoeff_(1.0) {}
+
+  virtual ~PseudorangeDDIonoFactor() = default;
+
+  PseudorangeDDIonoFactor(
+      Key receiverPositionKey, Key ionoKey, double ddPseudorange,
+      const Point3& satellitePosition, const Point3& baseSatellitePosition,
+      const Point3& referencePosition, double ionosphereCoefficient = 1.0,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  Vector evaluateError(const Point3& receiverPosition,
+                       const double& iono,
+                       OptionalMatrixType HreceiverPos,
+                       OptionalMatrixType Hiono) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(PseudorangeDDIonoFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(ddPseudorange_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(satPosBase_);
+    ar& BOOST_SERIALIZATION_NVP(refPos_);
+    ar& BOOST_SERIALIZATION_NVP(ionoCoeff_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<PseudorangeDDIonoFactor>
+    : public Testable<PseudorangeDDIonoFactor> {};
+
 }  // namespace gtsam
