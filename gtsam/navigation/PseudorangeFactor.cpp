@@ -512,4 +512,64 @@ Vector PseudorangeDDFactorArm::evaluateError(
   return Vector1(error);
 }
 
+//***************************************************************************
+PseudorangeSDFactor::PseudorangeSDFactor(
+    const Key positionKey, const Key clockKey,
+    const double sdPseudorange, const Point3& satellitePosition,
+    const Point3& basePosition, const SharedNoiseModel& model)
+    : Base(model, positionKey, clockKey),
+      sdPr_(sdPseudorange),
+      satPos_(satellitePosition),
+      basePos_(basePosition) {}
+
+//***************************************************************************
+void PseudorangeSDFactor::print(const std::string& s,
+                                const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(sdPr_, "SD pseudorange (m): ");
+  gtsam::print(Vector(satPos_), "sat position (ECEF meters): ");
+  gtsam::print(Vector(basePos_), "base position (ECEF meters): ");
+}
+
+//***************************************************************************
+bool PseudorangeSDFactor::equals(const NonlinearFactor& expected,
+                                 double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  if (e == nullptr || !Base::equals(*e, tol)) return false;
+  if (!traits<double>::Equals(sdPr_, e->sdPr_, tol)) return false;
+  if (!traits<Point3>::Equals(satPos_, e->satPos_, tol)) return false;
+  if (!traits<Point3>::Equals(basePos_, e->basePos_, tol)) return false;
+  return true;
+}
+
+//***************************************************************************
+Vector PseudorangeSDFactor::evaluateError(
+    const Point3& position, const double& clockBias,
+    OptionalMatrixType Hposition,
+    OptionalMatrixType HclockBias) const {
+  // SD range: |rover - sat| - |base - sat|
+  const Vector3 diff_rov = position - satPos_;
+  const double rho_rov = diff_rov.norm();
+  const double rho_base = (basePos_ - satPos_).norm();
+  const double sd_range = rho_rov - rho_base;
+
+  // error = sd_range + c*dt - sd_pr
+  constexpr double CLIGHT = 299792458.0;
+  const double error = sd_range + CLIGHT * clockBias - sdPr_;
+
+  if (Hposition) {
+    if (rho_rov < std::numeric_limits<double>::epsilon()) {
+      *Hposition = Matrix13::Zero();
+    } else {
+      *Hposition = (diff_rov / rho_rov).transpose();
+    }
+  }
+
+  if (HclockBias) {
+    *HclockBias = I_1x1 * CLIGHT;
+  }
+
+  return Vector1(error);
+}
+
 }  // namespace gtsam

@@ -694,4 +694,89 @@ template <>
 struct traits<PseudorangeDDFactorArm>
     : public Testable<PseudorangeDDFactorArm> {};
 
+/**
+ * Single-difference (rover - base) pseudorange factor with rover-base
+ * clock state. Mirror of CarrierPhaseSDFactor for PR.
+ *
+ * Residual model:
+ *   error = (|pos - sat| - |base - sat|) + c*clockBias - sdPr
+ *
+ * Where clockBias is the rover-base clock difference in seconds.
+ * For zero baseline (pos == base), the SD geometric range is 0 and the
+ * factor reduces to error = c*clockBias - sdPr, so the clock state
+ * absorbs the common rover-base clock offset and per-sat residuals
+ * reflect any per-channel hardware bias.
+ *
+ * Keys: (Point3 rover position, double rover-base clock bias seconds)
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT PseudorangeSDFactor
+    : public NoiseModelFactorN<Point3, double> {
+ private:
+  typedef NoiseModelFactorN<Point3, double> Base;
+
+  double sdPr_;       ///< SD pseudorange measurement (rover - base, meters).
+  Point3 satPos_;     ///< Satellite ECEF position (meters).
+  Point3 basePos_;    ///< Base station ECEF position (meters).
+
+ public:
+  using Base::evaluateError;
+
+  typedef std::shared_ptr<PseudorangeSDFactor> shared_ptr;
+  typedef PseudorangeSDFactor This;
+
+  PseudorangeSDFactor()
+      : sdPr_(0.0), satPos_(0, 0, 0), basePos_(0, 0, 0) {}
+
+  virtual ~PseudorangeSDFactor() = default;
+
+  /**
+   * @param positionKey Rover Point3 ECEF position node.
+   * @param clockKey Rover-base clock bias (seconds).
+   * @param sdPseudorange SD pseudorange measurement (meters).
+   * @param satellitePosition Satellite ECEF position (meters).
+   * @param basePosition Base station ECEF position (meters).
+   * @param model 1-D noise model.
+   */
+  PseudorangeSDFactor(
+      Key positionKey, Key clockKey,
+      double sdPseudorange, const Point3& satellitePosition,
+      const Point3& basePosition,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+
+  Vector evaluateError(const Point3& position,
+                       const double& clockBias,
+                       OptionalMatrixType Hposition,
+                       OptionalMatrixType HclockBias) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(PseudorangeSDFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(sdPr_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(basePos_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<PseudorangeSDFactor>
+    : public Testable<PseudorangeSDFactor> {};
+
 }  // namespace gtsam
