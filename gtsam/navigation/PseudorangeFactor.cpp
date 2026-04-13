@@ -171,6 +171,4 @@ Vector PseudorangeFactorArm::evaluateError(
   return Vector1(error);
 }
 
-// DDPseudorangeFactor is fully inline in the header.
-
 }  // namespace gtsam

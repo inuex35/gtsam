@@ -179,6 +179,4 @@ Vector CarrierPhaseFactorArm::evaluateError(
   return Vector1(error);
 }
 
-// DDCarrierPhaseFactor is fully inline in the header.
-
 }  // namespace gtsam
