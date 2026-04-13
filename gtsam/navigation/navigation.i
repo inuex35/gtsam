@@ -558,13 +558,14 @@ virtual class PseudorangeFactorArm : gtsam::NonlinearFactor {
 
 #include <gtsam/navigation/PseudorangeFactor.h>
 virtual class DDPseudorangeFactor : gtsam::NonlinearFactor {
-  DDPseudorangeFactor(gtsam::Key positionKey, double ddObs,
+  DDPseudorangeFactor(gtsam::Key positionKey,
+                      double sdPrRef, double sdPrTarget,
                       const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                      const gtsam::Point3& basePos,
                       const gtsam::noiseModel::Base* model);
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter = gtsam::DefaultKeyFormatter) const;
   bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
   gtsam::Vector evaluateError(const gtsam::Point3& pos) const;
-  const double& measurementIn() const;
   void serialize() const;
 };
 
@@ -630,14 +631,14 @@ virtual class CarrierPhaseFactorArm : gtsam::NonlinearFactor {
 #include <gtsam/navigation/CarrierPhaseFactor.h>
 virtual class DDCarrierPhaseFactor : gtsam::NonlinearFactor {
   DDCarrierPhaseFactor(gtsam::Key positionKey, gtsam::Key ambRefKey,
-                       gtsam::Key ambTargetKey, double ddObs,
+                       gtsam::Key ambTargetKey,
+                       double sdCpRef, double sdCpTarget,
                        const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
-                       double lam,
+                       const gtsam::Point3& basePos, double lam,
                        const gtsam::noiseModel::Base* model);
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter = gtsam::DefaultKeyFormatter) const;
   bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
   gtsam::Vector evaluateError(const gtsam::Point3& pos, const double& ambRef, const double& ambTarget) const;
-  const double& measurementIn() const;
   void serialize() const;
 };
 
