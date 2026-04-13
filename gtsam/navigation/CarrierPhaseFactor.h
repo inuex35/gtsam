@@ -221,10 +221,12 @@ struct traits<CarrierPhaseFactorArm>
 /**
  * DD carrier phase factor.
  *
- * Takes SD (rover-base) carrier phase observations, satellite positions at
+ * Takes four raw (undifferenced) carrier phase observations -- rover and base
+ * for both reference and target satellites -- along with satellite positions at
  * both rover and base observation times, base station position, and wavelength.
+ * The factor forms the double-difference internally.
  *
- * error = (sdCpRef - sdCpTarget)
+ * error = (cpRovRef - cpBaseRef) - (cpRovTarget - cpBaseTarget)
  *       - [(geodist(satRefRov,pos) - geodist(satRefBase,basePos))
  *        - (geodist(satTargetRov,pos) - geodist(satTargetBase,basePos))]
  *       - lam * (ambRef - ambTarget)
@@ -236,8 +238,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
  private:
   typedef NoiseModelFactorN<Point3, double, double> Base;
 
-  double sdCpRef_;
-  double sdCpTarget_;
+  double cpRovRef_;
+  double cpBaseRef_;
+  double cpRovTarget_;
+  double cpBaseTarget_;
   Point3 satRefRov_;
   Point3 satTargetRov_;
   Point3 satRefBase_;
@@ -261,7 +265,7 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
   typedef DDCarrierPhaseFactor This;
 
   DDCarrierPhaseFactor()
-      : sdCpRef_(0), sdCpTarget_(0),
+      : cpRovRef_(0), cpBaseRef_(0), cpRovTarget_(0), cpBaseTarget_(0),
         satRefRov_(0,0,0), satTargetRov_(0,0,0),
         satRefBase_(0,0,0), satTargetBase_(0,0,0),
         basePos_(0,0,0), lam_(0) {}
@@ -269,13 +273,15 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
   virtual ~DDCarrierPhaseFactor() = default;
 
   DDCarrierPhaseFactor(Key positionKey, Key ambRefKey, Key ambTargetKey,
-                       double sdCpRef, double sdCpTarget,
+                       double cpRovRef, double cpBaseRef,
+                       double cpRovTarget, double cpBaseTarget,
                        const Point3& satRefRov, const Point3& satTargetRov,
                        const Point3& satRefBase, const Point3& satTargetBase,
                        const Point3& basePos, double lam,
                        const SharedNoiseModel& model = noiseModel::Unit::Create(1))
       : Base(model, positionKey, ambRefKey, ambTargetKey),
-        sdCpRef_(sdCpRef), sdCpTarget_(sdCpTarget),
+        cpRovRef_(cpRovRef), cpBaseRef_(cpBaseRef),
+        cpRovTarget_(cpRovTarget), cpBaseTarget_(cpBaseTarget),
         satRefRov_(satRefRov), satTargetRov_(satTargetRov),
         satRefBase_(satRefBase), satTargetBase_(satTargetBase),
         basePos_(basePos), lam_(lam) {}
@@ -295,8 +301,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
   bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
     const This* e = dynamic_cast<const This*>(&expected);
     return e != nullptr && Base::equals(*e, tol) &&
-           std::abs(sdCpRef_ - e->sdCpRef_) < tol &&
-           std::abs(sdCpTarget_ - e->sdCpTarget_) < tol &&
+           std::abs(cpRovRef_ - e->cpRovRef_) < tol &&
+           std::abs(cpBaseRef_ - e->cpBaseRef_) < tol &&
+           std::abs(cpRovTarget_ - e->cpRovTarget_) < tol &&
+           std::abs(cpBaseTarget_ - e->cpBaseTarget_) < tol &&
            std::abs(lam_ - e->lam_) < tol &&
            traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol) &&
            traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol) &&
@@ -310,7 +318,7 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
                        OptionalMatrixType Hpos,
                        OptionalMatrixType HambRef,
                        OptionalMatrixType HambTarget) const override {
-    const double ddObs = sdCpRef_ - sdCpTarget_;
+    const double ddObs = (cpRovRef_ - cpBaseRef_) - (cpRovTarget_ - cpBaseTarget_);
 
     Point3 eRef, eTarget, dummy;
     const double rRovRef = geodist(satRefRov_, pos, eRef);
@@ -334,8 +342,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
   template <class ARCHIVE>
   void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
     ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(DDCarrierPhaseFactor::Base);
-    ar& BOOST_SERIALIZATION_NVP(sdCpRef_);
-    ar& BOOST_SERIALIZATION_NVP(sdCpTarget_);
+    ar& BOOST_SERIALIZATION_NVP(cpRovRef_);
+    ar& BOOST_SERIALIZATION_NVP(cpBaseRef_);
+    ar& BOOST_SERIALIZATION_NVP(cpRovTarget_);
+    ar& BOOST_SERIALIZATION_NVP(cpBaseTarget_);
     ar& BOOST_SERIALIZATION_NVP(satRefRov_);
     ar& BOOST_SERIALIZATION_NVP(satTargetRov_);
     ar& BOOST_SERIALIZATION_NVP(satRefBase_);
@@ -362,8 +372,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
  private:
   typedef NoiseModelFactorN<Pose3, double, double> Base;
 
-  double sdCpRef_;
-  double sdCpTarget_;
+  double cpRovRef_;
+  double cpBaseRef_;
+  double cpRovTarget_;
+  double cpBaseTarget_;
   Point3 satRefRov_;
   Point3 satTargetRov_;
   Point3 satRefBase_;
@@ -389,7 +401,7 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
   typedef DDCarrierPhaseFactorArm This;
 
   DDCarrierPhaseFactorArm()
-      : sdCpRef_(0), sdCpTarget_(0),
+      : cpRovRef_(0), cpBaseRef_(0), cpRovTarget_(0), cpBaseTarget_(0),
         satRefRov_(0,0,0), satTargetRov_(0,0,0),
         satRefBase_(0,0,0), satTargetBase_(0,0,0),
         basePos_(0,0,0), lam_(0), bL_(0,0,0) {}
@@ -397,27 +409,31 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
   virtual ~DDCarrierPhaseFactorArm() = default;
 
   DDCarrierPhaseFactorArm(Key poseKey, Key ambRefKey, Key ambTargetKey,
-                          double sdCpRef, double sdCpTarget,
+                          double cpRovRef, double cpBaseRef,
+                          double cpRovTarget, double cpBaseTarget,
                           const Point3& satRefRov, const Point3& satTargetRov,
                           const Point3& satRefBase, const Point3& satTargetBase,
                           const Point3& basePos, double lam,
                           const Point3& leverArm,
                           const SharedNoiseModel& model = noiseModel::Unit::Create(1))
       : Base(model, poseKey, ambRefKey, ambTargetKey),
-        sdCpRef_(sdCpRef), sdCpTarget_(sdCpTarget),
+        cpRovRef_(cpRovRef), cpBaseRef_(cpBaseRef),
+        cpRovTarget_(cpRovTarget), cpBaseTarget_(cpBaseTarget),
         satRefRov_(satRefRov), satTargetRov_(satTargetRov),
         satRefBase_(satRefBase), satTargetBase_(satTargetBase),
         basePos_(basePos), lam_(lam), bL_(leverArm) {}
 
   DDCarrierPhaseFactorArm(Key poseKey, Key ambRefKey, Key ambTargetKey,
-                          double sdCpRef, double sdCpTarget,
+                          double cpRovRef, double cpBaseRef,
+                          double cpRovTarget, double cpBaseTarget,
                           const Point3& satRefRov, const Point3& satTargetRov,
                           const Point3& satRefBase, const Point3& satTargetBase,
                           const Point3& basePos, double lam,
                           const Point3& leverArm, const Pose3& ecef_T_nav,
                           const SharedNoiseModel& model = noiseModel::Unit::Create(1))
       : Base(model, poseKey, ambRefKey, ambTargetKey),
-        sdCpRef_(sdCpRef), sdCpTarget_(sdCpTarget),
+        cpRovRef_(cpRovRef), cpBaseRef_(cpBaseRef),
+        cpRovTarget_(cpRovTarget), cpBaseTarget_(cpBaseTarget),
         satRefRov_(satRefRov), satTargetRov_(satTargetRov),
         satRefBase_(satRefBase), satTargetBase_(satTargetBase),
         basePos_(basePos), lam_(lam), bL_(leverArm), ecef_T_nav_(ecef_T_nav) {}
@@ -437,8 +453,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
   bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
     const This* e = dynamic_cast<const This*>(&expected);
     return e != nullptr && Base::equals(*e, tol) &&
-           std::abs(sdCpRef_ - e->sdCpRef_) < tol &&
-           std::abs(sdCpTarget_ - e->sdCpTarget_) < tol &&
+           std::abs(cpRovRef_ - e->cpRovRef_) < tol &&
+           std::abs(cpBaseRef_ - e->cpBaseRef_) < tol &&
+           std::abs(cpRovTarget_ - e->cpRovTarget_) < tol &&
+           std::abs(cpBaseTarget_ - e->cpBaseTarget_) < tol &&
            std::abs(lam_ - e->lam_) < tol &&
            traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol) &&
            traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol) &&
@@ -462,7 +480,7 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
     const Matrix3 ecef_R_body = ecef_T_body.rotation().matrix();
     const Point3 antennaPos = ecef_T_body.translation() + ecef_R_body * bL_;
 
-    const double ddObs = sdCpRef_ - sdCpTarget_;
+    const double ddObs = (cpRovRef_ - cpBaseRef_) - (cpRovTarget_ - cpBaseTarget_);
 
     Point3 eRef, eTarget, dummy;
     const double rRovRef = geodist(satRefRov_, antennaPos, eRef);
@@ -502,8 +520,10 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
   template <class ARCHIVE>
   void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
     ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(DDCarrierPhaseFactorArm::Base);
-    ar& BOOST_SERIALIZATION_NVP(sdCpRef_);
-    ar& BOOST_SERIALIZATION_NVP(sdCpTarget_);
+    ar& BOOST_SERIALIZATION_NVP(cpRovRef_);
+    ar& BOOST_SERIALIZATION_NVP(cpBaseRef_);
+    ar& BOOST_SERIALIZATION_NVP(cpRovTarget_);
+    ar& BOOST_SERIALIZATION_NVP(cpBaseTarget_);
     ar& BOOST_SERIALIZATION_NVP(satRefRov_);
     ar& BOOST_SERIALIZATION_NVP(satTargetRov_);
     ar& BOOST_SERIALIZATION_NVP(satRefBase_);
