@@ -252,7 +252,7 @@ struct traits<PseudorangeFactorArm>
     : public Testable<PseudorangeFactorArm> {};
 
 /**
- * DD pseudorange factor (GICI style).
+ * DD pseudorange factor.
  *
  * Takes SD (rover-base) pseudorange observations for ref and target satellites,
  * satellite positions, and base station position. Computes DD and geometric

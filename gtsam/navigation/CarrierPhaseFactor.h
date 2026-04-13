@@ -219,7 +219,7 @@ struct traits<CarrierPhaseFactorArm>
     : public Testable<CarrierPhaseFactorArm> {};
 
 /**
- * DD carrier phase factor (GICI style).
+ * DD carrier phase factor.
  *
  * Takes SD (rover-base) carrier phase observations for ref and target
  * satellites, satellite positions, base station position, and wavelength.
