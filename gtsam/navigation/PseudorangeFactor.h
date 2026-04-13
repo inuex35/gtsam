@@ -383,4 +383,148 @@ class GTSAM_EXPORT DDPseudorangeFactor : public NoiseModelFactorN<Point3> {
 template <>
 struct traits<DDPseudorangeFactor> : public Testable<DDPseudorangeFactor> {};
 
+/**
+ * DD pseudorange factor with lever arm correction.
+ *
+ * Like DDPseudorangeFactor but uses Pose3 (position + attitude) with
+ * lever arm offset. Optional ecef_T_nav for local navigation frame.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT DDPseudorangeFactorArm : public NoiseModelFactorN<Pose3> {
+ private:
+  typedef NoiseModelFactorN<Pose3> Base;
+
+  double sdPrRef_;
+  double sdPrTarget_;
+  Point3 satRef_;
+  Point3 satTarget_;
+  Point3 basePos_;
+  Point3 bL_;  ///< Lever arm from body origin to antenna in body frame.
+  std::optional<Pose3> ecef_T_nav_;
+
+  static constexpr double OMGE = 7.2921151467e-5;
+  static constexpr double C_LIGHT = 299792458.0;
+
+  static double geodist(const Point3& sat, const Point3& rcv, Point3& e) {
+    const Point3 dr = sat - rcv;
+    const double r = dr.norm();
+    e = dr / r;
+    return r + OMGE * (sat.x() * rcv.y() - sat.y() * rcv.x()) / C_LIGHT;
+  }
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<DDPseudorangeFactorArm> shared_ptr;
+  typedef DDPseudorangeFactorArm This;
+
+  DDPseudorangeFactorArm()
+      : sdPrRef_(0), sdPrTarget_(0),
+        satRef_(0,0,0), satTarget_(0,0,0), basePos_(0,0,0), bL_(0,0,0) {}
+
+  virtual ~DDPseudorangeFactorArm() = default;
+
+  /// ECEF pose key
+  DDPseudorangeFactorArm(Key poseKey,
+                         double sdPrRef, double sdPrTarget,
+                         const Point3& satRef, const Point3& satTarget,
+                         const Point3& basePos, const Point3& leverArm,
+                         const SharedNoiseModel& model = noiseModel::Unit::Create(1))
+      : Base(model, poseKey), sdPrRef_(sdPrRef), sdPrTarget_(sdPrTarget),
+        satRef_(satRef), satTarget_(satTarget), basePos_(basePos), bL_(leverArm) {}
+
+  /// Local nav frame pose key with ecef_T_nav
+  DDPseudorangeFactorArm(Key poseKey,
+                         double sdPrRef, double sdPrTarget,
+                         const Point3& satRef, const Point3& satTarget,
+                         const Point3& basePos, const Point3& leverArm,
+                         const Pose3& ecef_T_nav,
+                         const SharedNoiseModel& model = noiseModel::Unit::Create(1))
+      : Base(model, poseKey), sdPrRef_(sdPrRef), sdPrTarget_(sdPrTarget),
+        satRef_(satRef), satTarget_(satTarget), basePos_(basePos),
+        bL_(leverArm), ecef_T_nav_(ecef_T_nav) {}
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override {
+    std::cout << (s.empty() ? "" : s + " ") << "DDPseudorangeFactorArm\n";
+    Base::print("", keyFormatter);
+  }
+
+  bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
+    const This* e = dynamic_cast<const This*>(&expected);
+    return e != nullptr && Base::equals(*e, tol) &&
+           std::abs(sdPrRef_ - e->sdPrRef_) < tol &&
+           std::abs(sdPrTarget_ - e->sdPrTarget_) < tol &&
+           traits<Point3>::Equals(satRef_, e->satRef_, tol) &&
+           traits<Point3>::Equals(satTarget_, e->satTarget_, tol) &&
+           traits<Point3>::Equals(basePos_, e->basePos_, tol) &&
+           traits<Point3>::Equals(bL_, e->bL_, tol);
+  }
+
+  Vector evaluateError(const Pose3& pose, OptionalMatrixType H_pose) const override {
+    Matrix66 H_compose;
+    const bool has_nav = ecef_T_nav_.has_value();
+    const Pose3 ecef_T_body = has_nav
+        ? ecef_T_nav_->compose(pose, {}, H_pose ? &H_compose : nullptr)
+        : pose;
+
+    const Matrix3 ecef_R_body = ecef_T_body.rotation().matrix();
+    const Point3 antennaPos = ecef_T_body.translation() + ecef_R_body * bL_;
+
+    const double ddObs = sdPrRef_ - sdPrTarget_;
+
+    Point3 eRef, eTarget, dummy;
+    const double rRovRef = geodist(satRef_, antennaPos, eRef);
+    const double rRovTarget = geodist(satTarget_, antennaPos, eTarget);
+    const double rBaseRef = geodist(satRef_, basePos_, dummy);
+    const double rBaseTarget = geodist(satTarget_, basePos_, dummy);
+
+    const double ddModel = (rRovRef - rBaseRef) - (rRovTarget - rBaseTarget);
+    const double error = ddObs - ddModel;
+
+    if (H_pose) {
+      H_pose->resize(1, 6);
+      const bool ok = rRovRef > std::numeric_limits<double>::epsilon() &&
+                      rRovTarget > std::numeric_limits<double>::epsilon();
+      if (!ok) {
+        H_pose->setZero();
+      } else {
+        const Matrix13 dd_u = (eRef - eTarget).transpose();
+        Matrix16 H_ecef;
+        H_ecef.block<1, 3>(0, 0) = dd_u * (-ecef_R_body * skewSymmetric(bL_));
+        H_ecef.block<1, 3>(0, 3) = dd_u * ecef_R_body;
+        *H_pose = has_nav ? H_ecef * H_compose : H_ecef;
+      }
+    }
+    return Vector1(error);
+  }
+
+  inline const Point3& leverArm() const { return bL_; }
+  inline const std::optional<Pose3>& ecefTnav() const { return ecef_T_nav_; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(DDPseudorangeFactorArm::Base);
+    ar& BOOST_SERIALIZATION_NVP(sdPrRef_);
+    ar& BOOST_SERIALIZATION_NVP(sdPrTarget_);
+    ar& BOOST_SERIALIZATION_NVP(satRef_);
+    ar& BOOST_SERIALIZATION_NVP(satTarget_);
+    ar& BOOST_SERIALIZATION_NVP(basePos_);
+    ar& BOOST_SERIALIZATION_NVP(bL_);
+    ar& BOOST_SERIALIZATION_NVP(ecef_T_nav_);
+  }
+#endif
+};
+
+template <>
+struct traits<DDPseudorangeFactorArm> : public Testable<DDPseudorangeFactorArm> {};
+
 }  // namespace gtsam

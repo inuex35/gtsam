@@ -569,6 +569,25 @@ virtual class DDPseudorangeFactor : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+virtual class DDPseudorangeFactorArm : gtsam::NonlinearFactor {
+  DDPseudorangeFactorArm(gtsam::Key poseKey,
+                         double sdPrRef, double sdPrTarget,
+                         const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                         const gtsam::Point3& basePos, const gtsam::Point3& leverArm,
+                         const gtsam::noiseModel::Base* model);
+  DDPseudorangeFactorArm(gtsam::Key poseKey,
+                         double sdPrRef, double sdPrTarget,
+                         const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                         const gtsam::Point3& basePos, const gtsam::Point3& leverArm,
+                         const gtsam::Pose3& ecef_T_nav,
+                         const gtsam::noiseModel::Base* model);
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter = gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose) const;
+  const gtsam::Point3& leverArm() const;
+  void serialize() const;
+};
+
 #include <gtsam/navigation/CarrierPhaseFactor.h>
 virtual class CarrierPhaseFactor : gtsam::NonlinearFactor {
   CarrierPhaseFactor(gtsam::Key receiverPositionKey,
@@ -639,6 +658,26 @@ virtual class DDCarrierPhaseFactor : gtsam::NonlinearFactor {
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter = gtsam::DefaultKeyFormatter) const;
   bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
   gtsam::Vector evaluateError(const gtsam::Point3& pos, const double& ambRef, const double& ambTarget) const;
+  void serialize() const;
+};
+
+virtual class DDCarrierPhaseFactorArm : gtsam::NonlinearFactor {
+  DDCarrierPhaseFactorArm(gtsam::Key poseKey, gtsam::Key ambRefKey, gtsam::Key ambTargetKey,
+                          double sdCpRef, double sdCpTarget,
+                          const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                          const gtsam::Point3& basePos, double lam,
+                          const gtsam::Point3& leverArm,
+                          const gtsam::noiseModel::Base* model);
+  DDCarrierPhaseFactorArm(gtsam::Key poseKey, gtsam::Key ambRefKey, gtsam::Key ambTargetKey,
+                          double sdCpRef, double sdCpTarget,
+                          const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                          const gtsam::Point3& basePos, double lam,
+                          const gtsam::Point3& leverArm, const gtsam::Pose3& ecef_T_nav,
+                          const gtsam::noiseModel::Base* model);
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter = gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose, const double& ambRef, const double& ambTarget) const;
+  const gtsam::Point3& leverArm() const;
   void serialize() const;
 };
 

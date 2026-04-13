@@ -363,4 +363,164 @@ class GTSAM_EXPORT DDCarrierPhaseFactor
 template <>
 struct traits<DDCarrierPhaseFactor> : public Testable<DDCarrierPhaseFactor> {};
 
+/**
+ * DD carrier phase factor with lever arm correction.
+ *
+ * Like DDCarrierPhaseFactor but uses Pose3 (position + attitude) with
+ * lever arm offset. Optional ecef_T_nav for local navigation frame.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT DDCarrierPhaseFactorArm
+    : public NoiseModelFactorN<Pose3, double, double> {
+ private:
+  typedef NoiseModelFactorN<Pose3, double, double> Base;
+
+  double sdCpRef_;
+  double sdCpTarget_;
+  Point3 satRef_;
+  Point3 satTarget_;
+  Point3 basePos_;
+  double lam_;
+  Point3 bL_;
+  std::optional<Pose3> ecef_T_nav_;
+
+  static constexpr double OMGE = 7.2921151467e-5;
+  static constexpr double C_LIGHT = 299792458.0;
+
+  static double geodist(const Point3& sat, const Point3& rcv, Point3& e) {
+    const Point3 dr = sat - rcv;
+    const double r = dr.norm();
+    e = dr / r;
+    return r + OMGE * (sat.x() * rcv.y() - sat.y() * rcv.x()) / C_LIGHT;
+  }
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<DDCarrierPhaseFactorArm> shared_ptr;
+  typedef DDCarrierPhaseFactorArm This;
+
+  DDCarrierPhaseFactorArm()
+      : sdCpRef_(0), sdCpTarget_(0), satRef_(0,0,0), satTarget_(0,0,0),
+        basePos_(0,0,0), lam_(0), bL_(0,0,0) {}
+
+  virtual ~DDCarrierPhaseFactorArm() = default;
+
+  /// ECEF pose key
+  DDCarrierPhaseFactorArm(Key poseKey, Key ambRefKey, Key ambTargetKey,
+                          double sdCpRef, double sdCpTarget,
+                          const Point3& satRef, const Point3& satTarget,
+                          const Point3& basePos, double lam,
+                          const Point3& leverArm,
+                          const SharedNoiseModel& model = noiseModel::Unit::Create(1))
+      : Base(model, poseKey, ambRefKey, ambTargetKey),
+        sdCpRef_(sdCpRef), sdCpTarget_(sdCpTarget),
+        satRef_(satRef), satTarget_(satTarget),
+        basePos_(basePos), lam_(lam), bL_(leverArm) {}
+
+  /// Local nav frame pose key with ecef_T_nav
+  DDCarrierPhaseFactorArm(Key poseKey, Key ambRefKey, Key ambTargetKey,
+                          double sdCpRef, double sdCpTarget,
+                          const Point3& satRef, const Point3& satTarget,
+                          const Point3& basePos, double lam,
+                          const Point3& leverArm, const Pose3& ecef_T_nav,
+                          const SharedNoiseModel& model = noiseModel::Unit::Create(1))
+      : Base(model, poseKey, ambRefKey, ambTargetKey),
+        sdCpRef_(sdCpRef), sdCpTarget_(sdCpTarget),
+        satRef_(satRef), satTarget_(satTarget),
+        basePos_(basePos), lam_(lam), bL_(leverArm), ecef_T_nav_(ecef_T_nav) {}
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override {
+    std::cout << (s.empty() ? "" : s + " ") << "DDCarrierPhaseFactorArm\n";
+    std::cout << "  lam: " << lam_ << "\n";
+    Base::print("", keyFormatter);
+  }
+
+  bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
+    const This* e = dynamic_cast<const This*>(&expected);
+    return e != nullptr && Base::equals(*e, tol) &&
+           std::abs(sdCpRef_ - e->sdCpRef_) < tol &&
+           std::abs(sdCpTarget_ - e->sdCpTarget_) < tol &&
+           std::abs(lam_ - e->lam_) < tol &&
+           traits<Point3>::Equals(satRef_, e->satRef_, tol) &&
+           traits<Point3>::Equals(satTarget_, e->satTarget_, tol) &&
+           traits<Point3>::Equals(basePos_, e->basePos_, tol) &&
+           traits<Point3>::Equals(bL_, e->bL_, tol);
+  }
+
+  Vector evaluateError(const Pose3& pose,
+                       const double& ambRef, const double& ambTarget,
+                       OptionalMatrixType H_pose,
+                       OptionalMatrixType HambRef,
+                       OptionalMatrixType HambTarget) const override {
+    Matrix66 H_compose;
+    const bool has_nav = ecef_T_nav_.has_value();
+    const Pose3 ecef_T_body = has_nav
+        ? ecef_T_nav_->compose(pose, {}, H_pose ? &H_compose : nullptr)
+        : pose;
+
+    const Matrix3 ecef_R_body = ecef_T_body.rotation().matrix();
+    const Point3 antennaPos = ecef_T_body.translation() + ecef_R_body * bL_;
+
+    const double ddObs = sdCpRef_ - sdCpTarget_;
+
+    Point3 eRef, eTarget, dummy;
+    const double rRovRef = geodist(satRef_, antennaPos, eRef);
+    const double rRovTarget = geodist(satTarget_, antennaPos, eTarget);
+    const double rBaseRef = geodist(satRef_, basePos_, dummy);
+    const double rBaseTarget = geodist(satTarget_, basePos_, dummy);
+
+    const double ddModel = (rRovRef - rBaseRef) - (rRovTarget - rBaseTarget);
+    const double error = ddObs - ddModel - lam_ * (ambRef - ambTarget);
+
+    if (H_pose) {
+      H_pose->resize(1, 6);
+      const bool ok = rRovRef > std::numeric_limits<double>::epsilon() &&
+                      rRovTarget > std::numeric_limits<double>::epsilon();
+      if (!ok) {
+        H_pose->setZero();
+      } else {
+        const Matrix13 dd_u = (eRef - eTarget).transpose();
+        Matrix16 H_ecef;
+        H_ecef.block<1, 3>(0, 0) = dd_u * (-ecef_R_body * skewSymmetric(bL_));
+        H_ecef.block<1, 3>(0, 3) = dd_u * ecef_R_body;
+        *H_pose = has_nav ? H_ecef * H_compose : H_ecef;
+      }
+    }
+    if (HambRef) *HambRef = (Matrix(1, 1) << -lam_).finished();
+    if (HambTarget) *HambTarget = (Matrix(1, 1) << lam_).finished();
+
+    return Vector1(error);
+  }
+
+  inline const Point3& leverArm() const { return bL_; }
+  inline const std::optional<Pose3>& ecefTnav() const { return ecef_T_nav_; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(DDCarrierPhaseFactorArm::Base);
+    ar& BOOST_SERIALIZATION_NVP(sdCpRef_);
+    ar& BOOST_SERIALIZATION_NVP(sdCpTarget_);
+    ar& BOOST_SERIALIZATION_NVP(satRef_);
+    ar& BOOST_SERIALIZATION_NVP(satTarget_);
+    ar& BOOST_SERIALIZATION_NVP(basePos_);
+    ar& BOOST_SERIALIZATION_NVP(lam_);
+    ar& BOOST_SERIALIZATION_NVP(bL_);
+    ar& BOOST_SERIALIZATION_NVP(ecef_T_nav_);
+  }
+#endif
+};
+
+template <>
+struct traits<DDCarrierPhaseFactorArm> : public Testable<DDCarrierPhaseFactorArm> {};
+
 }  // namespace gtsam
