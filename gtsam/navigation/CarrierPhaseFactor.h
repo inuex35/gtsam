@@ -218,332 +218,77 @@ template <>
 struct traits<CarrierPhaseFactorArm>
     : public Testable<CarrierPhaseFactorArm> {};
 
-/**
- * Double-differenced carrier phase factor with lever arm correction.
- *
- * Implements the RTK carrier phase model using double differences between
- * rover/reference stations and target/base satellites. Eliminates receiver
- * clock biases and reduces atmospheric errors.
- *
- * The DD observation (precomputed by caller):
- *   dd_phi = phi_rov - phi_ref - phi_rov_base + phi_ref_base
- *
- * The DD model:
- *   dd_rho = ||antenna_rov - sat|| - ||ref_pos - sat||
- *          - ||antenna_rov - sat_base|| + ||ref_pos - sat_base||
- *
- * The error:
- *   error = dd_rho + ambiguity - ambiguity_base - dd_phi
- *
- * Keys: (Pose3 rover_pose, double ambiguity, double ambiguity_base)
- * Fixed: satellite positions (2), reference station position, DD measurement.
- *
- * When the optional ecef_T_nav transform is provided, the pose key is
- * interpreted as a local navigation frame pose.
- *
- * @ingroup navigation
- */
-class GTSAM_EXPORT CarrierPhaseDDFactorArm
-    : public NoiseModelFactorN<Pose3, double, double> {
- private:
-  typedef NoiseModelFactorN<Pose3, double, double> Base;
-
-  double ddPhase_;     ///< DD carrier phase measurement in meters.
-  Point3 satPos_;      ///< Target satellite ECEF position in meters.
-  Point3 satPosBase_;  ///< Base satellite ECEF position in meters.
-  Point3 refPos_;      ///< Reference station ECEF position in meters.
-  Point3 bL_;          ///< Lever arm from body origin to antenna in body frame.
-  std::optional<Pose3> ecef_T_nav_;  ///< Optional ECEF-from-nav transform.
-
- public:
-  using Base::evaluateError;
-
-  typedef std::shared_ptr<CarrierPhaseDDFactorArm> shared_ptr;
-  typedef CarrierPhaseDDFactorArm This;
-
-  /** default constructor - only use for serialization */
-  CarrierPhaseDDFactorArm()
-      : ddPhase_(0.0), satPos_(0, 0, 0), satPosBase_(0, 0, 0),
-        refPos_(0, 0, 0), bL_(0, 0, 0) {}
-
-  virtual ~CarrierPhaseDDFactorArm() = default;
-
-  /**
-   * Construct a CarrierPhaseDDFactorArm (ECEF pose key).
-   *
-   * @param poseKey Rover Pose3 key (body pose in ECEF frame).
-   * @param ambiguityKey DD ambiguity for target satellite (meters).
-   * @param ambiguityBaseKey DD ambiguity for base satellite (meters).
-   * @param ddCarrierPhase DD carrier phase measurement in meters.
-   * @param satellitePosition Target satellite ECEF position in meters.
-   * @param baseSatellitePosition Base satellite ECEF position in meters.
-   * @param referencePosition Reference station ECEF position in meters.
-   * @param leverArm Translation from body origin to antenna in body frame.
-   * @param model 1-D noise model.
-   */
-  CarrierPhaseDDFactorArm(
-      Key poseKey, Key ambiguityKey, Key ambiguityBaseKey,
-      double ddCarrierPhase,
-      const Point3& satellitePosition, const Point3& baseSatellitePosition,
-      const Point3& referencePosition, const Point3& leverArm,
-      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
-
-  /**
-   * Construct a CarrierPhaseDDFactorArm with ecef_T_nav.
-   */
-  CarrierPhaseDDFactorArm(
-      Key poseKey, Key ambiguityKey, Key ambiguityBaseKey,
-      double ddCarrierPhase,
-      const Point3& satellitePosition, const Point3& baseSatellitePosition,
-      const Point3& referencePosition, const Point3& leverArm,
-      const Pose3& ecef_T_nav,
-      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
-
-  /// @return a deep copy of this factor
-  gtsam::NonlinearFactor::shared_ptr clone() const override {
-    return std::static_pointer_cast<gtsam::NonlinearFactor>(
-        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
-  }
-
-  /// print
-  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
-                                            DefaultKeyFormatter) const override;
-
-  /// equals
-  bool equals(const NonlinearFactor& expected,
-              double tol = 1e-9) const override;
-
-  /// vector of errors
-  Vector evaluateError(const Pose3& pose,
-                       const double& ambiguity,
-                       const double& ambiguityBase,
-                       OptionalMatrixType H_pose,
-                       OptionalMatrixType Hambiguity,
-                       OptionalMatrixType HambiguityBase) const override;
-
-  /// return the lever arm
-  inline const Point3& leverArm() const { return bL_; }
-
-  /// return the optional ecef_T_nav transform
-  inline const std::optional<Pose3>& ecefTnav() const { return ecef_T_nav_; }
-
- private:
-#if GTSAM_ENABLE_BOOST_SERIALIZATION  ///
-  friend class boost::serialization::access;
-  template <class ARCHIVE>
-  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
-    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseDDFactorArm::Base);
-    ar& BOOST_SERIALIZATION_NVP(ddPhase_);
-    ar& BOOST_SERIALIZATION_NVP(satPos_);
-    ar& BOOST_SERIALIZATION_NVP(satPosBase_);
-    ar& BOOST_SERIALIZATION_NVP(refPos_);
-    ar& BOOST_SERIALIZATION_NVP(bL_);
-    ar& BOOST_SERIALIZATION_NVP(ecef_T_nav_);
-  }
-#endif
-};
-
-/// traits
-template <>
-struct traits<CarrierPhaseDDFactorArm>
-    : public Testable<CarrierPhaseDDFactorArm> {};
-
-/**
- * Single-differenced carrier phase factor (RTKLIB style).
- *
- * SD observation = L_rover - L_base for each satellite.
- * Estimates SD ambiguity per satellite. DD formed at LAMBDA time.
- *
- * The error model:
- *   error = (|pos - sat| - |base - sat|) + c * dt + ambiguity - sdPhase
- *
- * Keys: (Point3 rover_position, double clock_bias, double sd_ambiguity)
- * Fixed: satellite position, base station position, SD carrier phase.
- *
- * @ingroup navigation
- */
-class GTSAM_EXPORT CarrierPhaseSDFactor
-    : public NoiseModelFactorN<Point3, double, double> {
+class GTSAM_EXPORT DDCarrierPhaseFactor : public NoiseModelFactorN<Point3, double, double> {
  private:
   typedef NoiseModelFactorN<Point3, double, double> Base;
-
-  double sdPhase_;   ///< SD carrier phase measurement in meters.
-  Point3 satPos_;    ///< Satellite ECEF position in meters.
-  Point3 basePos_;   ///< Base station ECEF position in meters.
-
+  double ddObs_;
+  Point3 satRef_;
+  Point3 satTarget_;
+  double lam_;
+  static constexpr double OMGE = 7.2921151467e-5;
+  static double geodist(const Point3& sat, const Point3& rcv, Point3& e) {
+    const Point3 dr = sat - rcv;
+    const double r = dr.norm();
+    e = dr / r;
+    return r + OMGE * (sat.x() * rcv.y() - sat.y() * rcv.x()) / 299792458.0;
+  }
  public:
   using Base::evaluateError;
-
-  typedef std::shared_ptr<CarrierPhaseSDFactor> shared_ptr;
-  typedef CarrierPhaseSDFactor This;
-
-  CarrierPhaseSDFactor()
-      : sdPhase_(0.0), satPos_(0, 0, 0), basePos_(0, 0, 0) {}
-
-  virtual ~CarrierPhaseSDFactor() = default;
-
-  /**
-   * @param positionKey Rover Point3 ECEF position node.
-   * @param clockKey Rover-base clock bias (seconds).
-   * @param ambiguityKey SD ambiguity (meters).
-   * @param sdCarrierPhase SD carrier phase measurement (meters).
-   * @param satellitePosition Satellite ECEF position (meters).
-   * @param basePosition Base station ECEF position (meters).
-   * @param model 1-D noise model.
-   */
-  CarrierPhaseSDFactor(
-      Key positionKey, Key clockKey, Key ambiguityKey,
-      double sdCarrierPhase, const Point3& satellitePosition,
-      const Point3& basePosition,
-      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
-
+  typedef std::shared_ptr<DDCarrierPhaseFactor> shared_ptr;
+  typedef DDCarrierPhaseFactor This;
+  DDCarrierPhaseFactor() : ddObs_(0.0), satRef_(0, 0, 0), satTarget_(0, 0, 0), lam_(0.0) {}
+  virtual ~DDCarrierPhaseFactor() = default;
+  DDCarrierPhaseFactor(Key positionKey, Key ambRefKey, Key ambTargetKey,
+                       double ddObs, const Point3& satRef, const Point3& satTarget,
+                       double lam,
+                       const SharedNoiseModel& model = noiseModel::Unit::Create(1))
+      : Base(model, positionKey, ambRefKey, ambTargetKey),
+        ddObs_(ddObs), satRef_(satRef), satTarget_(satTarget), lam_(lam) {}
   gtsam::NonlinearFactor::shared_ptr clone() const override {
     return std::static_pointer_cast<gtsam::NonlinearFactor>(
         gtsam::NonlinearFactor::shared_ptr(new This(*this)));
   }
-
   void print(const std::string& s = "", const KeyFormatter& keyFormatter =
-                                            DefaultKeyFormatter) const override;
-
-  bool equals(const NonlinearFactor& expected,
-              double tol = 1e-9) const override;
-
-  Vector evaluateError(const Point3& position,
-                       const double& clockBias,
-                       const double& ambiguity,
-                       OptionalMatrixType Hposition,
-                       OptionalMatrixType HclockBias,
-                       OptionalMatrixType Hambiguity) const override;
-
+                                            DefaultKeyFormatter) const override {
+    std::cout << (s.empty() ? "" : s + " ") << "DDCarrierPhaseFactor\n";
+    std::cout << "  dd_obs: " << ddObs_ << ", lam: " << lam_ << "\n";
+    Base::print("", keyFormatter);
+  }
+  bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
+    const This* e = dynamic_cast<const This*>(&expected);
+    return e != nullptr && Base::equals(*e, tol) &&
+           std::abs(ddObs_ - e->ddObs_) < tol &&
+           std::abs(lam_ - e->lam_) < tol &&
+           traits<Point3>::Equals(satRef_, e->satRef_, tol) &&
+           traits<Point3>::Equals(satTarget_, e->satTarget_, tol);
+  }
+  Vector evaluateError(const Point3& pos, const double& ambRef, const double& ambTarget,
+                       OptionalMatrixType Hpos, OptionalMatrixType HambRef,
+                       OptionalMatrixType HambTarget) const override {
+    Point3 eRef, eTarget;
+    const double rRef = geodist(satRef_, pos, eRef);
+    const double rTarget = geodist(satTarget_, pos, eTarget);
+    const double error = ddObs_ - (rRef - rTarget) - lam_ * (ambRef - ambTarget);
+    if (Hpos) *Hpos = (Matrix(1, 3) << (eRef - eTarget).transpose()).finished();
+    if (HambRef) *HambRef = (Matrix(1, 1) << -lam_).finished();
+    if (HambTarget) *HambTarget = (Matrix(1, 1) << lam_).finished();
+    return Vector1(error);
+  }
+  inline const double& measurementIn() const { return ddObs_; }
  private:
 #if GTSAM_ENABLE_BOOST_SERIALIZATION
   friend class boost::serialization::access;
   template <class ARCHIVE>
   void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
-    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseSDFactor::Base);
-    ar& BOOST_SERIALIZATION_NVP(sdPhase_);
-    ar& BOOST_SERIALIZATION_NVP(satPos_);
-    ar& BOOST_SERIALIZATION_NVP(basePos_);
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(DDCarrierPhaseFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(ddObs_);
+    ar& BOOST_SERIALIZATION_NVP(satRef_);
+    ar& BOOST_SERIALIZATION_NVP(satTarget_);
+    ar& BOOST_SERIALIZATION_NVP(lam_);
   }
 #endif
 };
-
-/// traits
 template <>
-struct traits<CarrierPhaseSDFactor>
-    : public Testable<CarrierPhaseSDFactor> {};
-
-/**
- * GREAT-FGO style DD carrier phase factor.
- *
- * Computes DD residual from undifferenced observations internally.
- * Takes raw SD carrier phase for target and reference satellite.
- * SD ambiguity parameters are correctly aligned with observations.
- *
- * Internal computation:
- *   sd_resid_target = |pos - sat_target| - |base - sat_target| + N_target - sd_phi_target
- *   sd_resid_ref    = |pos - sat_ref|    - |base - sat_ref|    + N_ref    - sd_phi_ref
- *   dd_error = sd_resid_target - sd_resid_ref
- *
- * Keys: (Point3 position, double N_target, double N_ref)
- * Fixed: satellite positions, base position, SD carrier phases.
- *
- * N_target and N_ref are SD ambiguities initialized as:
- *   N = sd_phi - (|approx - sat| - |base - sat|)
- * which gives N ≈ true SD ambiguity.
- *
- * @ingroup navigation
- */
-class GTSAM_EXPORT CarrierPhaseDDFactor
-    : public NoiseModelFactorN<Point3, double, double, double> {
- private:
-  typedef NoiseModelFactorN<Point3, double, double, double> Base;
-
-  double sdPhiTarget_;    ///< SD carrier phase for target satellite (meters).
-  double sdPhiRef_;       ///< SD carrier phase for reference satellite (meters).
-  Point3 satPosTarget_;   ///< Target satellite ECEF position.
-  Point3 satPosRef_;      ///< Reference satellite ECEF position.
-  Point3 basePos_;        ///< Base station ECEF position.
-  double ionoCoeff_;      ///< Ionosphere coefficient. 0=no iono, -1=L1 phase,
-                          ///< -(f1/f2)^2=L2 phase, etc.
-
- public:
-  using Base::evaluateError;
-
-  typedef std::shared_ptr<CarrierPhaseDDFactor> shared_ptr;
-  typedef CarrierPhaseDDFactor This;
-
-  CarrierPhaseDDFactor()
-      : sdPhiTarget_(0), sdPhiRef_(0),
-        satPosTarget_(0,0,0), satPosRef_(0,0,0), basePos_(0,0,0),
-        ionoCoeff_(0) {}
-
-  virtual ~CarrierPhaseDDFactor() = default;
-
-  /**
-   * Unified DD carrier phase factor with optional ionosphere.
-   *
-   * error = dd_rho + (N_target - N_ref) + ionoCoeff * dd_iono - dd_phi
-   *
-   * @param positionKey Rover Point3 ECEF position.
-   * @param ambTargetKey SD ambiguity for target satellite (meters).
-   * @param ambRefKey SD ambiguity for reference satellite (meters).
-   * @param ionoKey DD ionosphere delay at L1 frequency (meters). Ignored if ionoCoeff=0.
-   * @param sdPhiTarget SD carrier phase for target (meters): L_rov - L_base.
-   * @param sdPhiRef SD carrier phase for ref (meters): L_rov - L_base.
-   * @param satPosTarget Target satellite ECEF position.
-   * @param satPosRef Reference satellite ECEF position.
-   * @param basePosition Base station ECEF position.
-   * @param ionosphereCoefficient Iono coefficient: 0=none, -1=L1, -(f1/f2)^2=L2.
-   * @param model 1-D noise model.
-   */
-  CarrierPhaseDDFactor(
-      Key positionKey, Key ambTargetKey, Key ambRefKey, Key ionoKey,
-      double sdPhiTarget, double sdPhiRef,
-      const Point3& satPosTarget, const Point3& satPosRef,
-      const Point3& basePosition,
-      double ionosphereCoefficient = 0.0,
-      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
-
-  gtsam::NonlinearFactor::shared_ptr clone() const override {
-    return std::static_pointer_cast<gtsam::NonlinearFactor>(
-        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
-  }
-
-  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
-                                            DefaultKeyFormatter) const override;
-
-  bool equals(const NonlinearFactor& expected,
-              double tol = 1e-9) const override;
-
-  Vector evaluateError(const Point3& position,
-                       const double& ambTarget,
-                       const double& ambRef,
-                       const double& ddIono,
-                       OptionalMatrixType Hposition,
-                       OptionalMatrixType HambTarget,
-                       OptionalMatrixType HambRef,
-                       OptionalMatrixType Hiono) const override;
-
- private:
-#if GTSAM_ENABLE_BOOST_SERIALIZATION
-  friend class boost::serialization::access;
-  template <class ARCHIVE>
-  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
-    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(CarrierPhaseDDFactor::Base);
-    ar& BOOST_SERIALIZATION_NVP(sdPhiTarget_);
-    ar& BOOST_SERIALIZATION_NVP(sdPhiRef_);
-    ar& BOOST_SERIALIZATION_NVP(satPosTarget_);
-    ar& BOOST_SERIALIZATION_NVP(satPosRef_);
-    ar& BOOST_SERIALIZATION_NVP(basePos_);
-    ar& BOOST_SERIALIZATION_NVP(ionoCoeff_);
-  }
-#endif
-};
-
-/// traits
-template <>
-struct traits<CarrierPhaseDDFactor>
-    : public Testable<CarrierPhaseDDFactor> {};
+struct traits<DDCarrierPhaseFactor> : public Testable<DDCarrierPhaseFactor> {};
 
 }  // namespace gtsam
