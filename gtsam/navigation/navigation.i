@@ -573,12 +573,14 @@ virtual class DDPseudorangeFactor : gtsam::NonlinearFactor {
 virtual class DDPseudorangeFactorArm : gtsam::NonlinearFactor {
   DDPseudorangeFactorArm(gtsam::Key poseKey,
                          double sdPrRef, double sdPrTarget,
-                         const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                         const gtsam::Point3& satRefRov, const gtsam::Point3& satTargetRov,
+                         const gtsam::Point3& satRefBase, const gtsam::Point3& satTargetBase,
                          const gtsam::Point3& basePos, const gtsam::Point3& leverArm,
                          const gtsam::noiseModel::Base* model);
   DDPseudorangeFactorArm(gtsam::Key poseKey,
                          double sdPrRef, double sdPrTarget,
-                         const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                         const gtsam::Point3& satRefRov, const gtsam::Point3& satTargetRov,
+                         const gtsam::Point3& satRefBase, const gtsam::Point3& satTargetBase,
                          const gtsam::Point3& basePos, const gtsam::Point3& leverArm,
                          const gtsam::Pose3& ecef_T_nav,
                          const gtsam::noiseModel::Base* model);
@@ -666,13 +668,15 @@ virtual class DDCarrierPhaseFactor : gtsam::NonlinearFactor {
 virtual class DDCarrierPhaseFactorArm : gtsam::NonlinearFactor {
   DDCarrierPhaseFactorArm(gtsam::Key poseKey, gtsam::Key ambRefKey, gtsam::Key ambTargetKey,
                           double sdCpRef, double sdCpTarget,
-                          const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                          const gtsam::Point3& satRefRov, const gtsam::Point3& satTargetRov,
+                          const gtsam::Point3& satRefBase, const gtsam::Point3& satTargetBase,
                           const gtsam::Point3& basePos, double lam,
                           const gtsam::Point3& leverArm,
                           const gtsam::noiseModel::Base* model);
   DDCarrierPhaseFactorArm(gtsam::Key poseKey, gtsam::Key ambRefKey, gtsam::Key ambTargetKey,
                           double sdCpRef, double sdCpTarget,
-                          const gtsam::Point3& satRef, const gtsam::Point3& satTarget,
+                          const gtsam::Point3& satRefRov, const gtsam::Point3& satTargetRov,
+                          const gtsam::Point3& satRefBase, const gtsam::Point3& satTargetBase,
                           const gtsam::Point3& basePos, double lam,
                           const gtsam::Point3& leverArm, const gtsam::Pose3& ecef_T_nav,
                           const gtsam::noiseModel::Base* model);
