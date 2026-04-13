@@ -6,6 +6,7 @@
  **/
 #pragma once
 
+#include <gtsam/base/std_optional_serialization.h>
 #include <gtsam/geometry/Point3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/nonlinear/NoiseModelFactorN.h>
@@ -122,6 +123,83 @@ class GTSAM_EXPORT PseudorangeFactor : public NoiseModelFactorN<Point3, double>,
 /// traits
 template <>
 struct traits<PseudorangeFactor> : public Testable<PseudorangeFactor> {};
+
+/**
+ * Simple differentially-corrected pseudorange factor for precise positioning.
+ *
+ * This factor implements the model prescribed by chapter 5.8.2 from [1],
+ * where a reference GNSS receiver with known position provides differential
+ * pseudorange corrections for a "user" receiver to eliminate common-mode
+ * atmospheric errors. The idea being that spatially local receivers experience
+ * the same atmospheric errors since their signal paths pass through the same
+ * regions of Earth's atmosphere. Therefore, this factor accepts an additional
+ * "differential correction" variable from a reference receiver to cancel-out
+ * local-area biases from the user's pseudoranges.
+ *
+ * Note that this factor is designed for code-phase measurements.
+ *
+ * @example Please see the `DifferentialPseudorangeExample.ipynb` notebook
+ * for a demonstration of this factor on CORS datasets.
+ *
+ * @ingroup navigation
+ *
+ * REFERENCES:
+ * [1] P. Misra et. al., "Global Positioning Systems: Signals, Measurements, and
+ * Performance", Second Edition, 2012.
+ */
+class GTSAM_EXPORT DifferentialPseudorangeFactor
+    : public NoiseModelFactorN<Point3, double, double>,
+      private PseudorangeBase {
+ private:
+  typedef NoiseModelFactorN<Point3, double, double> Base;
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<DifferentialPseudorangeFactor> shared_ptr;
+  typedef DifferentialPseudorangeFactor This;
+
+  DifferentialPseudorangeFactor() = default;
+  virtual ~DifferentialPseudorangeFactor() = default;
+
+  DifferentialPseudorangeFactor(
+      Key receiverPositionKey, Key receiverClockBiasKey,
+      Key differentialCorrectionKey, double measuredPseudorange,
+      const Point3& satellitePosition, double satelliteClockBias = 0.0,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+  Vector evaluateError(
+      const Point3& receiverPosition, const double& receiverClock_bias,
+      const double& differentialCorrection, OptionalMatrixType HreceiverPos,
+      OptionalMatrixType HreceiverClockBias,
+      OptionalMatrixType HdifferentialCorrection) const override;
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(
+        DifferentialPseudorangeFactor::Base);
+    ar& BOOST_SERIALIZATION_NVP(pseudorange_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(satClkBias_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<DifferentialPseudorangeFactor>
+    : public Testable<DifferentialPseudorangeFactor> {};
 
 /**
  * GNSS pseudorange factor with lever arm correction.
@@ -250,6 +328,91 @@ class GTSAM_EXPORT PseudorangeFactorArm
 template <>
 struct traits<PseudorangeFactorArm>
     : public Testable<PseudorangeFactorArm> {};
+
+/**
+ * Differentially-corrected pseudorange factor with lever arm correction.
+ *
+ * Combines the differential correction model of DifferentialPseudorangeFactor
+ * with the lever arm compensation of PseudorangeFactorArm. Uses a Pose3
+ * (position + attitude) as the receiver state variable.
+ *
+ * The error model is:
+ *   error = ||antenna_pos - satPos|| + c*(dt_u - dt_s) - pseudorange - correction
+ *
+ * When the optional ecef_T_nav transform is provided, the pose key is
+ * interpreted as a local navigation frame pose (e.g., ENU), and the factor
+ * internally converts it to ECEF via ecef_T_body = ecef_T_nav * nav_T_body.
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT DifferentialPseudorangeFactorArm
+    : public NoiseModelFactorN<Pose3, double, double>,
+      private PseudorangeBase {
+ private:
+  typedef NoiseModelFactorN<Pose3, double, double> Base;
+  Point3 bL_;
+  std::optional<Pose3> ecef_T_nav_;
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<DifferentialPseudorangeFactorArm> shared_ptr;
+  typedef DifferentialPseudorangeFactorArm This;
+
+  DifferentialPseudorangeFactorArm() : PseudorangeBase{0.0, Point3(0, 0, 0), 0.0}, bL_(0, 0, 0) {}
+  virtual ~DifferentialPseudorangeFactorArm() = default;
+
+  DifferentialPseudorangeFactorArm(
+      Key poseKey, Key receiverClockBiasKey, Key differentialCorrectionKey,
+      double measuredPseudorange, const Point3& satellitePosition,
+      const Point3& leverArm, double satelliteClockBias = 0.0,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  DifferentialPseudorangeFactorArm(
+      Key poseKey, Key receiverClockBiasKey, Key differentialCorrectionKey,
+      double measuredPseudorange, const Point3& satellitePosition,
+      const Point3& leverArm, const Pose3& ecef_T_nav,
+      double satelliteClockBias = 0.0,
+      const SharedNoiseModel& model = noiseModel::Unit::Create(1));
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  void print(const std::string& s = "", const KeyFormatter& keyFormatter =
+                                            DefaultKeyFormatter) const override;
+  bool equals(const NonlinearFactor& expected,
+              double tol = 1e-9) const override;
+  Vector evaluateError(const Pose3& pose,
+                       const double& receiverClockBias,
+                       const double& differentialCorrection,
+                       OptionalMatrixType H_pose,
+                       OptionalMatrixType HreceiverClockBias,
+                       OptionalMatrixType HdifferentialCorrection) const override;
+
+  inline const Point3& leverArm() const { return bL_; }
+  inline const std::optional<Pose3>& ecefTnav() const { return ecef_T_nav_; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(
+        DifferentialPseudorangeFactorArm::Base);
+    ar& BOOST_SERIALIZATION_NVP(pseudorange_);
+    ar& BOOST_SERIALIZATION_NVP(satPos_);
+    ar& BOOST_SERIALIZATION_NVP(satClkBias_);
+    ar& BOOST_SERIALIZATION_NVP(bL_);
+    ar& BOOST_SERIALIZATION_NVP(ecef_T_nav_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<DifferentialPseudorangeFactorArm>
+    : public Testable<DifferentialPseudorangeFactorArm> {};
 
 /**
  * DD pseudorange factor.
@@ -491,17 +654,20 @@ class GTSAM_EXPORT DDPseudorangeFactorArm : public NoiseModelFactorN<Pose3> {
 
   bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
     const This* e = dynamic_cast<const This*>(&expected);
-    return e != nullptr && Base::equals(*e, tol) &&
-           std::abs(prRovRef_ - e->prRovRef_) < tol &&
-           std::abs(prBaseRef_ - e->prBaseRef_) < tol &&
-           std::abs(prRovTarget_ - e->prRovTarget_) < tol &&
-           std::abs(prBaseTarget_ - e->prBaseTarget_) < tol &&
-           traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol) &&
-           traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol) &&
-           traits<Point3>::Equals(satRefBase_, e->satRefBase_, tol) &&
-           traits<Point3>::Equals(satTargetBase_, e->satTargetBase_, tol) &&
-           traits<Point3>::Equals(basePos_, e->basePos_, tol) &&
-           traits<Point3>::Equals(bL_, e->bL_, tol);
+    if (e == nullptr || !Base::equals(*e, tol)) return false;
+    if (std::abs(prRovRef_ - e->prRovRef_) >= tol) return false;
+    if (std::abs(prBaseRef_ - e->prBaseRef_) >= tol) return false;
+    if (std::abs(prRovTarget_ - e->prRovTarget_) >= tol) return false;
+    if (std::abs(prBaseTarget_ - e->prBaseTarget_) >= tol) return false;
+    if (!traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol)) return false;
+    if (!traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol)) return false;
+    if (!traits<Point3>::Equals(satRefBase_, e->satRefBase_, tol)) return false;
+    if (!traits<Point3>::Equals(satTargetBase_, e->satTargetBase_, tol)) return false;
+    if (!traits<Point3>::Equals(basePos_, e->basePos_, tol)) return false;
+    if (!traits<Point3>::Equals(bL_, e->bL_, tol)) return false;
+    if (ecef_T_nav_.has_value() != e->ecef_T_nav_.has_value()) return false;
+    if (ecef_T_nav_ && !ecef_T_nav_->equals(*e->ecef_T_nav_, tol)) return false;
+    return true;
   }
 
   Vector evaluateError(const Pose3& pose, OptionalMatrixType H_pose) const override {

@@ -123,6 +123,91 @@ TEST(TestPseudorangeFactor, equals) {
 }
 
 // *************************************************************************
+TEST(TestDifferentialPseudorangeFactor, Constructor) {
+  const auto factor =
+      DifferentialPseudorangeFactor(Key(0), Key(1), Key(2), 0.0, Point3::Zero(),
+                                    0.0, noiseModel::Isotropic::Sigma(1, 1.0));
+
+  Matrix Hpos, Hbias, Hcorrection;
+  const double error = factor.evaluateError(Point3::Zero(), 0.0, 0.0, Hpos,
+                                            Hbias, Hcorrection)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-9);
+
+  // Derivatives are technically undefined if the receiver and satellite
+  // positions are the same (hopefully that's never the case in reality). But
+  // for all intents and purposes, zero-valued derivatives can substitute for
+  // undefined gradient at that singularity. So make sure this corner-case does
+  // not numerically explode:
+  EXPECT(!Hpos.array().isNaN().any());
+  EXPECT(!Hbias.array().isNaN().any());
+  EXPECT(!Hcorrection.array().isNaN().any());
+  EXPECT_DOUBLES_EQUAL(Hpos.norm(), 0.0, 1e-9);
+  // Clock bias derivative should always be speed-of-light in vacuum:
+  EXPECT_DOUBLES_EQUAL(Hbias(0, 0), 299792458.0, 1e-9);
+  // Correction derivative should be constant -1:
+  EXPECT_DOUBLES_EQUAL(Hcorrection(0, 0), -1.0, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactor, Jacobians) {
+  // Synthetic example with exact error/derivatives:
+  const auto factor = DifferentialPseudorangeFactor(
+      Key(0), Key(1),  // Receiver position and clock bias keys.
+      Key(2),          // Differential correction keys.
+      4.0,             // Measured pseudorange.
+      // Satellite position:
+      Vector3(0.0, 0.0, 3.0),
+      0.0  // Sat clock drift bias.
+  );
+
+  // Zero differential correction case:
+  {
+    const double error = factor.evaluateError(Vector3::Zero(), 0.0, 0.0)[0];
+    EXPECT_DOUBLES_EQUAL(-1.0, error, 1e-6);
+  }
+
+  // Nontrivial differential correction:
+  {
+    const double error = factor.evaluateError(Vector3::Zero(), 0.0, 123.0)[0];
+    EXPECT_DOUBLES_EQUAL(-124.0, error, 1e-6);
+  }
+
+  Values values;
+  values.insert(Key(0), Vector3(1.0, 2.0, 3.0));
+  values.insert(Key(1), 0.0);
+  values.insert(Key(2), 0.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactor, print) {
+  // Just make sure `print()` doesn't throw errors
+  // since there's no elegant way to check stdout.
+  const auto factor = DifferentialPseudorangeFactor();
+  factor.print();
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactor, equals) {
+  const auto factor1 = DifferentialPseudorangeFactor();
+  const auto factor2 =
+      DifferentialPseudorangeFactor(1, 2, 3, 0.0, Point3::Zero(), 0.0);
+  const auto factorCorr =
+      DifferentialPseudorangeFactor(1, 2, 7, 0.0, Point3::Zero(), 0.0);
+  const auto factor3 =
+      DifferentialPseudorangeFactor(1, 2, 3, 10.0, Point3(1.0, 2.0, 3.0), 20.0);
+
+  CHECK(factor1.equals(factor1));
+  CHECK(factor2.equals(factor2));
+  CHECK(!factor1.equals(factor2));
+  CHECK(factor2.equals(factor3, 1e99));
+  CHECK(!factor2.equals(factorCorr));
+
+  // Test print:
+  factor2.print("factor2");
+}
+
+// *************************************************************************
 TEST(TestPseudorangeFactorArm, Constructor) {
   const Point3 leverArm(0.1, 0.2, 0.3);
   const auto factor = PseudorangeFactorArm(
@@ -267,6 +352,145 @@ TEST(TestPseudorangeFactorArm, equals) {
 }
 
 // *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, Constructor) {
+  const Point3 leverArm(0.1, 0.2, 0.3);
+  const auto factor = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), 0.0, Point3::Zero(), leverArm, 0.0,
+      noiseModel::Isotropic::Sigma(1, 1.0));
+
+  Matrix Hpose, Hbias, Hcorrection;
+  const double error = factor.evaluateError(Pose3::Identity(), 0.0, 0.0, Hpose,
+                                            Hbias, Hcorrection)[0];
+
+  const double expectedRange = leverArm.norm();
+  EXPECT_DOUBLES_EQUAL(expectedRange, error, 1e-9);
+
+  EXPECT(!Hpose.array().isNaN().any());
+  EXPECT(!Hbias.array().isNaN().any());
+  EXPECT(!Hcorrection.array().isNaN().any());
+  EXPECT_DOUBLES_EQUAL(Hbias(0, 0), 299792458.0, 1e-9);
+  EXPECT_DOUBLES_EQUAL(Hcorrection(0, 0), -1.0, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, Jacobians1) {
+  const Point3 leverArm(0.5, -0.3, 1.0);
+  const auto factor = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2),
+      4.0,
+      Vector3(0.0, 0.0, 3.0),
+      leverArm,
+      0.0
+  );
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                               Point3(1.0, 2.0, 3.0)));
+  values.insert(Key(1), 0.0);
+  values.insert(Key(2), 0.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-5, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, Jacobians2) {
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const auto factor = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2),
+      24874028.989,
+      Vector3(-5824269.46342, -22935011.26952, -12195522.22428),
+      leverArm,
+      -0.00022743876852667193
+  );
+
+  Values values;
+  values.insert(Key(0),
+                Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                      Point3(-2684418.91084688, -4293361.08683296,
+                             3865365.45451951)));
+  values.insert(Key(1), 5.377885093511699e-07);
+  values.insert(Key(2), 10.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, LeverArmZeroError) {
+  const Point3 leverArm(0.5, -0.3, 1.0);
+  const Rot3 ecef_R_body = Rot3::RzRyRx(0.15, -0.30, 0.45);
+  const Point3 satPos(1000.0, 2000.0, 3000.0);
+
+  const Point3 antennaPos(10.0, 20.0, 30.0);
+  const Point3 bodyPos = antennaPos - ecef_R_body.matrix() * leverArm;
+  const Pose3 ecef_T_body(ecef_R_body, bodyPos);
+
+  const double trueRange = (antennaPos - satPos).norm();
+  const double clockBias = 1e-7;
+  const double satClkBias = 2e-8;
+  const double correction = 5.0;
+  // pseudorange = trueRange + c*(clockBias - satClkBias) - correction
+  // so that error = 0
+  const double pseudorange =
+      trueRange + 299792458.0 * (clockBias - satClkBias) - correction;
+
+  const auto factor = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, leverArm, satClkBias);
+
+  const double error =
+      factor.evaluateError(ecef_T_body, clockBias, correction)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, ZeroLeverArm) {
+  // With zero lever arm, should produce the same error as
+  // DifferentialPseudorangeFactor at the same position:
+  const Point3 satPos(100.0, 200.0, 300.0);
+  const Point3 receiverPos(1.0, 2.0, 3.0);
+  const double pseudorange = 350.0;
+  const double clockBias = 1e-8;
+  const double satClkBias = 1e-9;
+  const double correction = 5.0;
+
+  const auto factorPoint = DifferentialPseudorangeFactor(
+      Key(0), Key(1), Key(2), pseudorange, satPos, satClkBias);
+  const auto factorArm = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, Point3::Zero(), satClkBias);
+
+  const double errorPoint =
+      factorPoint.evaluateError(receiverPos, clockBias, correction)[0];
+  const double errorArm =
+      factorArm.evaluateError(Pose3(Rot3::Identity(), receiverPos),
+                              clockBias, correction)[0];
+  EXPECT_DOUBLES_EQUAL(errorPoint, errorArm, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, print) {
+  const auto factor = DifferentialPseudorangeFactorArm();
+  factor.print();
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, equals) {
+  const Point3 leverArm(0.1, 0.2, 0.3);
+  const auto factor1 = DifferentialPseudorangeFactorArm();
+  const auto factor2 = DifferentialPseudorangeFactorArm(
+      1, 2, 3, 0.0, Point3::Zero(), leverArm, 0.0);
+  const auto factor3 = DifferentialPseudorangeFactorArm(
+      1, 2, 3, 10.0, Point3(1.0, 2.0, 3.0), leverArm, 20.0);
+
+  CHECK(factor1.equals(factor1));
+  CHECK(factor2.equals(factor2));
+  CHECK(!factor1.equals(factor2));
+  CHECK(factor2.equals(factor3, 1e99));
+
+  const auto factor4 = DifferentialPseudorangeFactorArm(
+      1, 2, 3, 0.0, Point3::Zero(), Point3(9.0, 8.0, 7.0), 0.0);
+  CHECK(!factor2.equals(factor4));
+
+  factor2.print("factor2");
+}
+
+// *************************************************************************
 // ecef_T_nav tests for PseudorangeFactorArm
 // *************************************************************************
 TEST(TestPseudorangeFactorArm, EcefTnavIdentity) {
@@ -359,6 +583,254 @@ TEST(TestPseudorangeFactorArm, EcefTnavEquals) {
   // Different ecef_T_nav should not be equal
   CHECK(!factor1.equals(factor2));
   CHECK(factor2.equals(factor2));
+}
+
+// *************************************************************************
+// ecef_T_nav tests for DifferentialPseudorangeFactorArm
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, EcefTnavIdentity) {
+  const Point3 leverArm(0.5, -0.3, 1.0);
+  const Point3 satPos(0.0, 0.0, 3.0);
+  const double pseudorange = 4.0;
+
+  const auto factorEcef = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, leverArm, 0.0);
+  const auto factorNav = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, leverArm,
+      Pose3::Identity(), 0.0);
+
+  const Pose3 pose(Rot3::RzRyRx(0.1, 0.2, 0.3), Point3(1.0, 2.0, 3.0));
+  const double clockBias = 1e-8;
+  const double correction = 5.0;
+
+  const double errorEcef =
+      factorEcef.evaluateError(pose, clockBias, correction)[0];
+  const double errorNav =
+      factorNav.evaluateError(pose, clockBias, correction)[0];
+  EXPECT_DOUBLES_EQUAL(errorEcef, errorNav, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, EcefTnavENUJacobians) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const Point3 satPos(-5824269.46342, -22935011.26952, -12195522.22428);
+
+  const auto factor = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), 24874028.989, satPos, leverArm, ecef_T_nav,
+      -0.00022743876852667193);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                               Point3(10.0, 20.0, 5.0)));
+  values.insert(Key(1), 5.377885093511699e-07);
+  values.insert(Key(2), 10.0);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDifferentialPseudorangeFactorArm, EcefTnavConsistency) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Pose3 nav_T_body(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                          Point3(10.0, 20.0, 5.0));
+  const Pose3 ecef_T_body = ecef_T_nav.compose(nav_T_body);
+
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const Point3 satPos(-5824269.46342, -22935011.26952, -12195522.22428);
+  const double pseudorange = 24874028.989;
+  const double satClkBias = -0.00022743876852667193;
+  const double clockBias = 5.377885093511699e-07;
+  const double correction = 10.0;
+
+  const auto factorEcef = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, leverArm, satClkBias);
+  const auto factorNav = DifferentialPseudorangeFactorArm(
+      Key(0), Key(1), Key(2), pseudorange, satPos, leverArm, ecef_T_nav,
+      satClkBias);
+
+  const double errorEcef =
+      factorEcef.evaluateError(ecef_T_body, clockBias, correction)[0];
+  const double errorNav =
+      factorNav.evaluateError(nav_T_body, clockBias, correction)[0];
+  EXPECT_DOUBLES_EQUAL(errorEcef, errorNav, 1e-6);
+}
+
+// *************************************************************************
+// DDPseudorangeFactor tests
+// *************************************************************************
+
+/// Shared test geometry for DD pseudorange factors
+static const Point3 kBasePos(-3961908.12, 3348995.59, 3698211.13);
+static const Point3 kSatRefRov(-5824269.46, -22935011.27, -12195522.22);
+static const Point3 kSatTargetRov(15524471.18, -6304441.44, 20851474.88);
+static const Point3 kSatRefBase(-5824242.10, -22935002.50, -12195510.80);
+static const Point3 kSatTargetBase(15524505.30, -6304460.20, 20851440.60);
+
+static double computeGeodist(const Point3& sat, const Point3& rcv) {
+  constexpr double OMGE = 7.2921151467e-5;
+  constexpr double C_LIGHT = 299792458.0;
+  const double r = (sat - rcv).norm();
+  return r + OMGE * (sat.x() * rcv.y() - sat.y() * rcv.x()) / C_LIGHT;
+}
+
+TEST(TestDDPseudorangeFactor, ZeroError) {
+  const Point3 truePos(-3961900.00, 3349000.00, 3698215.00);
+
+  const double rRovRef = computeGeodist(kSatRefRov, truePos);
+  const double rRovTarget = computeGeodist(kSatTargetRov, truePos);
+  const double rBaseRef = computeGeodist(kSatRefBase, kBasePos);
+  const double rBaseTarget = computeGeodist(kSatTargetBase, kBasePos);
+
+  const double ddModel = (rRovRef - rBaseRef) - (rRovTarget - rBaseTarget);
+  // Set DD obs = DD model so error = 0
+  const double prRovRef = ddModel / 2.0 + 1000.0;
+  const double prBaseRef = -ddModel / 2.0 + 1000.0;
+  const double prRovTarget = 500.0;
+  const double prBaseTarget = 500.0;
+
+  const auto factor = DDPseudorangeFactor(
+      Key(0),
+      prRovRef, prBaseRef, prRovTarget, prBaseTarget,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos);
+
+  const double error = factor.evaluateError(truePos)[0];
+  EXPECT_DOUBLES_EQUAL(0.0, error, 1e-4);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactor, Jacobians) {
+  const auto factor = DDPseudorangeFactor(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos);
+
+  Values values;
+  values.insert(Key(0), Point3(-3961900.00, 3349000.00, 3698215.00));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactor, equals) {
+  const auto f1 = DDPseudorangeFactor(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase, kBasePos);
+  const auto f2 = DDPseudorangeFactor(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase, kBasePos);
+  const auto f3 = DDPseudorangeFactor(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      Point3(0, 0, 0));  // different base pos
+
+  CHECK(f1.equals(f2));
+  CHECK(!f1.equals(f3));
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactor, print) {
+  const auto factor = DDPseudorangeFactor(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase, kBasePos);
+  factor.print("test ");
+}
+
+// *************************************************************************
+// DDPseudorangeFactorArm tests
+// *************************************************************************
+TEST(TestDDPseudorangeFactorArm, Jacobians) {
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const auto factor = DDPseudorangeFactorArm(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.1, 0.2, 0.3),
+                               Point3(-3961900.00, 3349000.00, 3698215.00)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactorArm, EcefTnavJacobians) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const auto factor = DDPseudorangeFactorArm(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm, ecef_T_nav);
+
+  Values values;
+  values.insert(Key(0), Pose3(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                               Point3(10.0, 20.0, 5.0)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactorArm, ZeroLeverArm) {
+  const Point3 pos(-3961900.00, 3349000.00, 3698215.00);
+
+  const auto factorPt = DDPseudorangeFactor(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase, kBasePos);
+  const auto factorArm = DDPseudorangeFactorArm(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, Point3::Zero());
+
+  const double errorPt = factorPt.evaluateError(pos)[0];
+  const double errorArm = factorArm.evaluateError(
+      Pose3(Rot3::Identity(), pos))[0];
+  EXPECT_DOUBLES_EQUAL(errorPt, errorArm, 1e-9);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactorArm, EcefTnavConsistency) {
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+  const Pose3 nav_T_body(Rot3::RzRyRx(0.05, -0.03, 0.1),
+                          Point3(10.0, 20.0, 5.0));
+  const Pose3 ecef_T_body = ecef_T_nav.compose(nav_T_body);
+  const Point3 leverArm(0.1, 0.0, -0.5);
+
+  const auto factorEcef = DDPseudorangeFactorArm(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm);
+  const auto factorNav = DDPseudorangeFactorArm(
+      Key(0),
+      25000000.0, 24999500.0, 22000000.0, 21999800.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm, ecef_T_nav);
+
+  const double errorEcef = factorEcef.evaluateError(ecef_T_body)[0];
+  const double errorNav = factorNav.evaluateError(nav_T_body)[0];
+  EXPECT_DOUBLES_EQUAL(errorEcef, errorNav, 1e-6);
+}
+
+// *************************************************************************
+TEST(TestDDPseudorangeFactorArm, equals) {
+  const Point3 leverArm(0.1, 0.0, -0.5);
+  const Pose3 ecef_T_nav = makeEcefTnav(35.578, 139.749, 80.0);
+
+  const auto f1 = DDPseudorangeFactorArm(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm);
+  const auto f2 = DDPseudorangeFactorArm(
+      Key(0), 100.0, 99.0, 80.0, 79.0,
+      kSatRefRov, kSatTargetRov, kSatRefBase, kSatTargetBase,
+      kBasePos, leverArm, ecef_T_nav);
+
+  // Different ecef_T_nav should not be equal
+  CHECK(!f1.equals(f2));
+  CHECK(f1.equals(f1));
+  CHECK(f2.equals(f2));
 }
 
 // *************************************************************************

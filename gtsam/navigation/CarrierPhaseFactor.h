@@ -452,18 +452,21 @@ class GTSAM_EXPORT DDCarrierPhaseFactorArm
 
   bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override {
     const This* e = dynamic_cast<const This*>(&expected);
-    return e != nullptr && Base::equals(*e, tol) &&
-           std::abs(cpRovRef_ - e->cpRovRef_) < tol &&
-           std::abs(cpBaseRef_ - e->cpBaseRef_) < tol &&
-           std::abs(cpRovTarget_ - e->cpRovTarget_) < tol &&
-           std::abs(cpBaseTarget_ - e->cpBaseTarget_) < tol &&
-           std::abs(lam_ - e->lam_) < tol &&
-           traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol) &&
-           traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol) &&
-           traits<Point3>::Equals(satRefBase_, e->satRefBase_, tol) &&
-           traits<Point3>::Equals(satTargetBase_, e->satTargetBase_, tol) &&
-           traits<Point3>::Equals(basePos_, e->basePos_, tol) &&
-           traits<Point3>::Equals(bL_, e->bL_, tol);
+    if (e == nullptr || !Base::equals(*e, tol)) return false;
+    if (std::abs(cpRovRef_ - e->cpRovRef_) >= tol) return false;
+    if (std::abs(cpBaseRef_ - e->cpBaseRef_) >= tol) return false;
+    if (std::abs(cpRovTarget_ - e->cpRovTarget_) >= tol) return false;
+    if (std::abs(cpBaseTarget_ - e->cpBaseTarget_) >= tol) return false;
+    if (std::abs(lam_ - e->lam_) >= tol) return false;
+    if (!traits<Point3>::Equals(satRefRov_, e->satRefRov_, tol)) return false;
+    if (!traits<Point3>::Equals(satTargetRov_, e->satTargetRov_, tol)) return false;
+    if (!traits<Point3>::Equals(satRefBase_, e->satRefBase_, tol)) return false;
+    if (!traits<Point3>::Equals(satTargetBase_, e->satTargetBase_, tol)) return false;
+    if (!traits<Point3>::Equals(basePos_, e->basePos_, tol)) return false;
+    if (!traits<Point3>::Equals(bL_, e->bL_, tol)) return false;
+    if (ecef_T_nav_.has_value() != e->ecef_T_nav_.has_value()) return false;
+    if (ecef_T_nav_ && !ecef_T_nav_->equals(*e->ecef_T_nav_, tol)) return false;
+    return true;
   }
 
   Vector evaluateError(const Pose3& pose,
