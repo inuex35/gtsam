@@ -27,6 +27,7 @@
 #include <gtsam/navigation/CombinedImuFactor.h>
 #include <gtsam/navigation/GPSFactor.h>
 #include <gtsam/navigation/ImuFactor.h>
+#include <gtsam/navigation/NhcFactor.h>
 #include <gtsam/navigation/PseudorangeFactor.h>
 
 #include <fstream>
@@ -318,6 +319,26 @@ TEST(DoubleDifferenceCarrierPhaseFactorArm, Serialization) {
   DoubleDifferenceCarrierPhaseFactorArm f(0, 1, 2, kPr, kPr + 1, kPr + 2,
                                           kPr + 3, kSat1, kSat2, kSat3, kSat4,
                                           kBase, kLam, kLever, kGnss);
+  EXPECT(equalsObj(f));
+  EXPECT(equalsXML(f));
+  EXPECT(equalsBinary(f));
+}
+
+/* ************************************************************************* */
+TEST(NhcFactor, Serialization) {
+  SharedNoiseModel model = noiseModel::Isotropic::Sigma(3, 0.25);
+  NhcFactor f(0, 1, Vector3(0.01, -0.02, 0.05), Vector3(-1.3, 0.1, 0.2), 2.0,
+              model, Vector3(0.02, -0.01, 0.03));
+  EXPECT(equalsObj(f));
+  EXPECT(equalsXML(f));
+  EXPECT(equalsBinary(f));
+}
+
+/* ************************************************************************* */
+TEST(NhcFactorCalib, Serialization) {
+  SharedNoiseModel model = noiseModel::Isotropic::Sigma(3, 0.25);
+  NhcFactorCalib f(0, 1, 2, Vector3(0.01, -0.02, 0.05), Vector3(-1.3, 0.1, 0.2),
+                   2.0, model);
   EXPECT(equalsObj(f));
   EXPECT(equalsXML(f));
   EXPECT(equalsBinary(f));
