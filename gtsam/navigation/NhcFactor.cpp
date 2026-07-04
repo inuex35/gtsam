@@ -116,10 +116,15 @@ Vector NhcFactorCalib::evaluateError(const Pose3& pose, const Vector3& velocity,
 
   // predicted = Expmap(mountAngle) * [wheel, 0, 0]  (exact rotation)
   const Vector3 v_odo(vWheel_, 0.0, 0.0);
-  Matrix3 Hexp, Hrot;
-  const Rot3 C = Rot3::Expmap(mountAngle, Hexp);
-  const Vector3 predicted = C.rotate(v_odo, Hrot);
-  if (H_mountAngle) *H_mountAngle = -(Hrot * Hexp);  // d(v_b - predicted)/dphi
+  Vector3 predicted;
+  if (H_mountAngle) {
+    Matrix3 Hexp, Hrot;
+    const Rot3 C = Rot3::Expmap(mountAngle, Hexp);
+    predicted = C.rotate(v_odo, Hrot);
+    *H_mountAngle = -(Hrot * Hexp);  // d(v_b - predicted)/dphi
+  } else {
+    predicted = Rot3::Expmap(mountAngle).rotate(v_odo);
+  }
 
   return v_b - predicted;
 }
