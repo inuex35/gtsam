@@ -243,6 +243,122 @@ TEST(TestDopplerFactorArm, InvalidDtThrows) {
 }
 
 // *************************************************************************
+
+// *************************************************************************
+// The single difference must reproduce the difference of two undifferenced
+// range rates, with the receiver clock gone from the model entirely.
+TEST(TestSingleDifferenceDopplerFactor, MatchesDifferenceOfUndifferenced) {
+  const Point3 satPosRef(1.4e7, -1.9e7, 1.5e7);
+  const Point3 satVelTarget(-1200.0, 2400.0, 800.0);
+  const Point3 satVelRef(900.0, -1500.0, -2100.0);
+  const Point3 rcvVel(0.3, -0.1, 0.05);
+  const double dTarget = -1500.0, dRef = 900.0;      // [Hz]
+  const double driftTarget = 1.2e-9, driftRef = -3.4e-10;
+
+  const auto sd = SingleDifferenceDopplerFactor(
+      Key(0), dTarget, dRef, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos, driftTarget,
+      driftRef, noiseModel::Isotropic::Sigma(1, 0.05));
+
+  // Two undifferenced factors sharing one clock pair: their difference has no
+  // clock term left, whatever the clock does.
+  const double dt = 0.2, biasPrev = 1.0e-6, biasCurr = biasPrev + 4.5e-9 * dt;
+  const auto uTarget = DopplerFactor(Key(0), Key(1), Key(2), dTarget,
+                                     kLambdaL1, sample::kSatPos, satVelTarget,
+                                     sample::kReceiverPos, dt, driftTarget);
+  const auto uRef = DopplerFactor(Key(0), Key(1), Key(2), dRef, kLambdaL1,
+                                  satPosRef, satVelRef, sample::kReceiverPos,
+                                  dt, driftRef);
+  const double expected =
+      uTarget.evaluateError((Vector3)rcvVel, biasPrev, biasCurr)[0] -
+      uRef.evaluateError((Vector3)rcvVel, biasPrev, biasCurr)[0];
+
+  EXPECT_DOUBLES_EQUAL(expected, sd.evaluateError((Vector3)rcvVel)[0], 1e-9);
+
+  Values values;
+  values.insert(Key(0), (Vector3)rcvVel);
+  EXPECT_CORRECT_FACTOR_JACOBIANS(sd, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+// Whatever the receiver clock does, the single difference does not see it.
+TEST(TestSingleDifferenceDopplerFactor, ClockFree) {
+  const Point3 satPosRef(1.4e7, -1.9e7, 1.5e7);
+  const Point3 satVelTarget(-1200.0, 2400.0, 800.0);
+  const Point3 satVelRef(900.0, -1500.0, -2100.0);
+  const Point3 rcvVel(0.3, -0.1, 0.05);
+
+  const auto sd = SingleDifferenceDopplerFactor(
+      Key(0), -1500.0, 900.0, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos, 0.0, 0.0,
+      noiseModel::Isotropic::Sigma(1, 0.05));
+
+  // The factor has one key: no clock state exists to perturb.
+  EXPECT_LONGS_EQUAL(1, (long)sd.keys().size());
+  EXPECT_LONGS_EQUAL(Key(0), (long)sd.keys()[0]);
+}
+
+// *************************************************************************
+TEST(TestSingleDifferenceDopplerFactorArm, ReducesToBaseWhenNoRotationRate) {
+  const Point3 satPosRef(1.4e7, -1.9e7, 1.5e7);
+  const Point3 satVelTarget(-1200.0, 2400.0, 800.0);
+  const Point3 satVelRef(900.0, -1500.0, -2100.0);
+  const Point3 rcvVel(0.3, -0.1, 0.05);
+  const Point3 lever(0.31, 0.0, 0.55);
+
+  const auto base = SingleDifferenceDopplerFactor(
+      Key(0), -1500.0, 900.0, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos, 1.2e-9,
+      -3.4e-10, noiseModel::Isotropic::Sigma(1, 0.05));
+  const auto arm = SingleDifferenceDopplerFactorArm(
+      Key(1), Key(0), -1500.0, 900.0, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos, lever,
+      Point3(0, 0, 0), 1.2e-9, -3.4e-10,
+      noiseModel::Isotropic::Sigma(1, 0.05));
+
+  const Pose3 pose(Rot3::Ypr(0.4, -0.1, 0.2), Point3(0, 0, 0));
+  EXPECT_DOUBLES_EQUAL(base.evaluateError((Vector3)rcvVel)[0],
+                       arm.evaluateError(pose, (Vector3)rcvVel)[0], 1e-9);
+}
+
+// *************************************************************************
+TEST(TestSingleDifferenceDopplerFactorArm, Jacobians) {
+  const Point3 satPosRef(1.4e7, -1.9e7, 1.5e7);
+  const Point3 satVelTarget(-1200.0, 2400.0, 800.0);
+  const Point3 satVelRef(900.0, -1500.0, -2100.0);
+  const Point3 rcvVel(0.3, -0.1, 0.05);
+
+  const auto arm = SingleDifferenceDopplerFactorArm(
+      Key(1), Key(0), -1500.0, 900.0, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos,
+      Point3(0.31, 0.0, 0.55), Point3(0.02, -0.05, 0.11), 1.2e-9, -3.4e-10,
+      noiseModel::Isotropic::Sigma(1, 0.05));
+
+  Values values;
+  values.insert(Key(0), (Vector3)rcvVel);
+  values.insert(Key(1), Pose3(Rot3::Ypr(0.4, -0.1, 0.2), Point3(3, 1, 2)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(arm, values, 1e-3, 1e-5);
+}
+
+// *************************************************************************
+TEST(TestSingleDifferenceDopplerFactorArm, NavFrameJacobians) {
+  const Point3 satPosRef(1.4e7, -1.9e7, 1.5e7);
+  const Point3 satVelTarget(-1200.0, 2400.0, 800.0);
+  const Point3 satVelRef(900.0, -1500.0, -2100.0);
+  const Pose3 ecef_T_nav(Rot3::Ypr(-0.7, 0.3, 0.1), sample::kReceiverPos);
+
+  const auto arm = SingleDifferenceDopplerFactorArm(
+      Key(1), Key(0), -1500.0, 900.0, kLambdaL1, kLambdaL1, sample::kSatPos,
+      satVelTarget, satPosRef, satVelRef, sample::kReceiverPos,
+      Point3(0.31, 0.0, 0.55), ecef_T_nav, Point3(0.02, -0.05, 0.11), 1.2e-9,
+      -3.4e-10, noiseModel::Isotropic::Sigma(1, 0.05));
+
+  Values values;
+  values.insert(Key(0), (Vector3)Point3(2.0, -1.0, 0.3));
+  values.insert(Key(1), Pose3(Rot3::Ypr(0.4, -0.1, 0.2), Point3(3, 1, 2)));
+  EXPECT_CORRECT_FACTOR_JACOBIANS(arm, values, 1e-3, 1e-5);
+}
+
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);
