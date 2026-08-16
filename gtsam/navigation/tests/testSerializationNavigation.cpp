@@ -32,6 +32,7 @@
 #include <gtsam/navigation/GPSFactor.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ImuFactorWithGravity.h>
+#include <gtsam/navigation/NhcFactor.h>
 #include <gtsam/navigation/PseudorangeFactor.h>
 
 #include <fstream>
@@ -468,6 +469,16 @@ TEST(DopplerFactor, Serialization) {
 }
 
 /* ************************************************************************* */
+TEST(NhcFactor, Serialization) {
+  SharedNoiseModel model = noiseModel::Isotropic::Sigma(3, 0.25);
+  NhcFactor f(0, 1, Vector3(0.01, -0.02, 0.05), Vector3(-1.3, 0.1, 0.2), 2.0,
+              model, Vector3(0.02, -0.01, 0.03));
+  EXPECT(equalsObj(f));
+  EXPECT(equalsXML(f));
+  EXPECT(equalsBinary(f));
+}
+
+/* ************************************************************************* */
 TEST(DopplerFactorArm, Serialization) {
   DopplerFactorArm f(0, 1, 2, 3, -1500.0, kLam, kSat1,
                      Point3(-1200, 2400, 800), kBase, kLever,
@@ -529,6 +540,16 @@ TEST(UndifferencedCarrierPhaseFactor, Serialization) {
 TEST(UndifferencedCarrierPhaseFactorArm, Serialization) {
   UndifferencedCarrierPhaseFactorArm f(0, 1, 2, 3, 4, kUPr, kUSat, kULever, kUmw,
                                        -kUmu, kULam, 1e-4, kUModel);
+  EXPECT(equalsObj(f));
+  EXPECT(equalsXML(f));
+  EXPECT(equalsBinary(f));
+}
+
+/* ************************************************************************* */
+TEST(NhcFactorCalib, Serialization) {
+  SharedNoiseModel model = noiseModel::Isotropic::Sigma(3, 0.25);
+  NhcFactorCalib f(0, 1, 2, Vector3(0.01, -0.02, 0.05), Vector3(-1.3, 0.1, 0.2),
+                   2.0, model);
   EXPECT(equalsObj(f));
   EXPECT(equalsXML(f));
   EXPECT(equalsBinary(f));

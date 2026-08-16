@@ -1346,4 +1346,48 @@ class LeggedCombinedFixedLagSmoother : gtsam::LeggedEstimator {
   gtsam::imuBias::ConstantBias estimateBias() const;
   size_t numFeet() const;
 };
+
+#include <gtsam/navigation/NhcFactor.h>
+virtual class NhcFactor : gtsam::NoiseModelFactor {
+  NhcFactor(gtsam::Key poseKey, gtsam::Key velocityKey,
+            const gtsam::Vector3& gyro, const gtsam::Vector3& leverArm,
+            double wheelSpeed, const gtsam::noiseModel::Base* model);
+  NhcFactor(gtsam::Key poseKey, gtsam::Key velocityKey,
+            const gtsam::Vector3& gyro, const gtsam::Vector3& leverArm,
+            double wheelSpeed, const gtsam::noiseModel::Base* model,
+            const gtsam::Vector3& mountAngle);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              const gtsam::Vector3& velocity) const;
+  gtsam::Vector3 gyro() const;
+  gtsam::Vector3 leverArm() const;
+  double wheelSpeed() const;
+  gtsam::Vector3 mountAngle() const;
+};
+
+virtual class NhcFactorCalib : gtsam::NoiseModelFactor {
+  NhcFactorCalib(gtsam::Key poseKey, gtsam::Key velocityKey,
+                 gtsam::Key mountAngleKey, const gtsam::Vector3& gyro,
+                 const gtsam::Vector3& leverArm, double wheelSpeed,
+                 const gtsam::noiseModel::Base* model);
+
+  // Testable
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+
+  // Standard Interface
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              const gtsam::Vector3& velocity,
+                              const gtsam::Vector3& mountAngle) const;
+  gtsam::Vector3 gyro() const;
+  gtsam::Vector3 leverArm() const;
+  double wheelSpeed() const;
+};
 }
