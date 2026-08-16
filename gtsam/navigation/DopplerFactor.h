@@ -288,4 +288,207 @@ class GTSAM_EXPORT DopplerFactorArm
 template <>
 struct traits<DopplerFactorArm> : public Testable<DopplerFactorArm> {};
 
+/**
+ * Between-satellite single-differenced Doppler (range rate).
+ *
+ * The receiver clock drift is common to every satellite of an epoch, so
+ * differencing two of them removes it before it reaches the graph:
+ *
+ *   error = [h_i - h_ref] - (m_i - m_ref),
+ *   h     = e . (v_s - v_r) + sagnac_rate - c * ddt_s,
+ *   m     = -lambda * Doppler,
+ *
+ * leaving a constraint on the receiver velocity alone. Compared with
+ * DopplerFactor this trades one measurement for the two clock-bias states
+ * and their random walk, which is the right trade wherever nothing else in
+ * the graph observes the clock -- a double-difference RTK graph, typically.
+ * There the clock states are only reachable through the Dopplers themselves,
+ * and under a narrow sky the drift and the velocity along the mean line of
+ * sight are nearly degenerate, so the estimate splits the error between them
+ * instead of correcting the velocity.
+ *
+ * The differenced measurement is correlated with every other difference that
+ * shares the reference satellite; as with double-differenced code and phase,
+ * either accept the diagonal approximation or supply the full covariance.
+ *
+ * Keys: [velocity (Vector3, ECEF m/s)].
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT SingleDifferenceDopplerFactor
+    : public NoiseModelFactorN<Vector3> {
+ private:
+  typedef NoiseModelFactorN<Vector3> Base;
+
+  double offset_ = 0.0;      ///< Velocity-independent part of the error [m/s].
+  Point3 velCoeff_{0, 0, 0}; ///< d(error)/d(v_r): (velSagnac - e) differenced.
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<SingleDifferenceDopplerFactor> shared_ptr;
+  typedef SingleDifferenceDopplerFactor This;
+
+  SingleDifferenceDopplerFactor() = default;
+  ~SingleDifferenceDopplerFactor() override = default;
+
+  /**
+   * @param velocityKey            Receiver ECEF velocity node (Vector3, m/s).
+   * @param measuredDopplerTarget  Doppler of the target satellite [Hz].
+   * @param measuredDopplerRef     Doppler of the reference satellite [Hz].
+   * @param wavelengthTarget       Carrier wavelength, target [m/cycle].
+   * @param wavelengthRef          Carrier wavelength, reference [m/cycle].
+   * @param satPosTarget           Target satellite ECEF position [m].
+   * @param satVelTarget           Target satellite ECEF velocity [m/s].
+   * @param satPosRef              Reference satellite ECEF position [m].
+   * @param satVelRef              Reference satellite ECEF velocity [m/s].
+   * @param receiverPosition       Receiver ECEF position [m] (for the LOS).
+   * @param satClkDriftTarget      Target satellite clock drift [s/s].
+   * @param satClkDriftRef         Reference satellite clock drift [s/s].
+   * @param model                  Noise model of the differenced range rate.
+   */
+  SingleDifferenceDopplerFactor(
+      Key velocityKey, double measuredDopplerTarget, double measuredDopplerRef,
+      double wavelengthTarget, double wavelengthRef,
+      const Point3& satPosTarget, const Point3& satVelTarget,
+      const Point3& satPosRef, const Point3& satVelRef,
+      const Point3& receiverPosition, double satClkDriftTarget,
+      double satClkDriftRef, const SharedNoiseModel& model);
+
+  /// @return a deep copy of this factor
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  /// print
+  void print(const std::string& s = "",
+             const KeyFormatter& keyFormatter = DefaultKeyFormatter) const override;
+
+  /// equals
+  bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override;
+
+  /// vector of errors
+  Vector evaluateError(const Vector3& velocity,
+                       OptionalMatrixType Hvelocity) const override;
+
+  /// Velocity-independent part of the error [m/s].
+  inline double offset() const { return offset_; }
+  /// Coefficient of the receiver velocity in the error.
+  inline const Point3& velocityCoefficient() const { return velCoeff_; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(Base);
+    ar& BOOST_SERIALIZATION_NVP(offset_);
+    ar& BOOST_SERIALIZATION_NVP(velCoeff_);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<SingleDifferenceDopplerFactor>
+    : public Testable<SingleDifferenceDopplerFactor> {};
+
+/**
+ * SingleDifferenceDopplerFactor with a kinematic lever-arm correction.
+ *
+ * As DopplerFactorArm is to DopplerFactor: the antenna velocity is
+ *
+ *   v_antenna = v_body + ecef_R_body * (omega x leverArm),
+ *
+ * so the pose enters through its attitude only. With the optional ecef_T_nav
+ * the pose key is a local nav-frame pose (e.g. ENU) and `velocity` is
+ * nav-frame too; without it both are ECEF.
+ *
+ * Keys: [pose (Pose3), velocity (Vector3, ECEF m/s; nav-frame with
+ *        ecef_T_nav)].
+ *
+ * @ingroup navigation
+ */
+class GTSAM_EXPORT SingleDifferenceDopplerFactorArm
+    : public NoiseModelFactorN<Pose3, Vector3> {
+ private:
+  typedef NoiseModelFactorN<Pose3, Vector3> Base;
+
+  double offset_ = 0.0;       ///< Velocity-independent part of the error [m/s].
+  Point3 velCoeff_{0, 0, 0};  ///< d(error)/d(v_antenna).
+  gnss::LeverArm arm_;        ///< Lever arm (body frame) + optional ecef_T_nav.
+  Point3 leverVel_{0, 0, 0};  ///< omega x leverArm, body frame [m/s].
+
+ public:
+  using Base::evaluateError;
+  typedef std::shared_ptr<SingleDifferenceDopplerFactorArm> shared_ptr;
+  typedef SingleDifferenceDopplerFactorArm This;
+
+  SingleDifferenceDopplerFactorArm() = default;
+  ~SingleDifferenceDopplerFactorArm() override = default;
+
+  /// Construct with an ECEF pose key.
+  SingleDifferenceDopplerFactorArm(
+      Key poseKey, Key velocityKey, double measuredDopplerTarget,
+      double measuredDopplerRef, double wavelengthTarget, double wavelengthRef,
+      const Point3& satPosTarget, const Point3& satVelTarget,
+      const Point3& satPosRef, const Point3& satVelRef,
+      const Point3& receiverPosition, const Point3& leverArm,
+      const Point3& angularVelocity, double satClkDriftTarget,
+      double satClkDriftRef, const SharedNoiseModel& model);
+
+  /// Construct with a local nav-frame pose key + ecef_T_nav.
+  SingleDifferenceDopplerFactorArm(
+      Key poseKey, Key velocityKey, double measuredDopplerTarget,
+      double measuredDopplerRef, double wavelengthTarget, double wavelengthRef,
+      const Point3& satPosTarget, const Point3& satVelTarget,
+      const Point3& satPosRef, const Point3& satVelRef,
+      const Point3& receiverPosition, const Point3& leverArm,
+      const Pose3& ecef_T_nav, const Point3& angularVelocity,
+      double satClkDriftTarget, double satClkDriftRef,
+      const SharedNoiseModel& model);
+
+  /// @return a deep copy of this factor
+  gtsam::NonlinearFactor::shared_ptr clone() const override {
+    return std::static_pointer_cast<gtsam::NonlinearFactor>(
+        gtsam::NonlinearFactor::shared_ptr(new This(*this)));
+  }
+
+  /// print
+  void print(const std::string& s = "",
+             const KeyFormatter& keyFormatter = DefaultKeyFormatter) const override;
+
+  /// equals
+  bool equals(const NonlinearFactor& expected, double tol = 1e-9) const override;
+
+  /// vector of errors
+  Vector evaluateError(const Pose3& pose, const Vector3& velocity,
+                       OptionalMatrixType Hpose,
+                       OptionalMatrixType Hvelocity) const override;
+
+  /// Lever arm in the body frame [m].
+  inline const Point3& leverArm() const { return arm_.b; }
+  /// Optional ECEF-from-nav transform.
+  inline const std::optional<Pose3>& ecefTnav() const { return arm_.ecef_T_nav; }
+
+ private:
+#if GTSAM_ENABLE_BOOST_SERIALIZATION
+  friend class boost::serialization::access;
+  template <class ARCHIVE>
+  void serialize(ARCHIVE& ar, const unsigned int /*version*/) {
+    ar& BOOST_SERIALIZATION_BASE_OBJECT_NVP(Base);
+    ar& BOOST_SERIALIZATION_NVP(offset_);
+    ar& BOOST_SERIALIZATION_NVP(velCoeff_);
+    ar& BOOST_SERIALIZATION_NVP(leverVel_);
+    ar& boost::serialization::make_nvp("arm_b_", arm_.b);
+    ar& boost::serialization::make_nvp("ecef_T_nav_", arm_.ecef_T_nav);
+  }
+#endif
+};
+
+/// traits
+template <>
+struct traits<SingleDifferenceDopplerFactorArm>
+    : public Testable<SingleDifferenceDopplerFactorArm> {};
+
 }  // namespace gtsam

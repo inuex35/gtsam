@@ -994,6 +994,52 @@ virtual class DopplerFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+#include <gtsam/navigation/DopplerFactor.h>
+virtual class SingleDifferenceDopplerFactor : gtsam::NonlinearFactor {
+  SingleDifferenceDopplerFactor(gtsam::Key velocityKey,
+                                double measuredDopplerTarget,
+                                double measuredDopplerRef,
+                                double wavelengthTarget, double wavelengthRef,
+                                const gtsam::Point3& satPosTarget,
+                                const gtsam::Point3& satVelTarget,
+                                const gtsam::Point3& satPosRef,
+                                const gtsam::Point3& satVelRef,
+                                const gtsam::Point3& receiverPosition,
+                                double satClkDriftTarget, double satClkDriftRef,
+                                const gtsam::noiseModel::Base* model);
+  gtsam::Vector evaluateError(gtsam::Vector velocity) const;
+  double offset() const;
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+};
+
+virtual class SingleDifferenceDopplerFactorArm : gtsam::NonlinearFactor {
+  SingleDifferenceDopplerFactorArm(
+      gtsam::Key poseKey, gtsam::Key velocityKey, double measuredDopplerTarget,
+      double measuredDopplerRef, double wavelengthTarget, double wavelengthRef,
+      const gtsam::Point3& satPosTarget, const gtsam::Point3& satVelTarget,
+      const gtsam::Point3& satPosRef, const gtsam::Point3& satVelRef,
+      const gtsam::Point3& receiverPosition, const gtsam::Point3& leverArm,
+      const gtsam::Point3& angularVelocity, double satClkDriftTarget,
+      double satClkDriftRef, const gtsam::noiseModel::Base* model);
+  SingleDifferenceDopplerFactorArm(
+      gtsam::Key poseKey, gtsam::Key velocityKey, double measuredDopplerTarget,
+      double measuredDopplerRef, double wavelengthTarget, double wavelengthRef,
+      const gtsam::Point3& satPosTarget, const gtsam::Point3& satVelTarget,
+      const gtsam::Point3& satPosRef, const gtsam::Point3& satVelRef,
+      const gtsam::Point3& receiverPosition, const gtsam::Point3& leverArm,
+      const gtsam::Pose3& ecef_T_nav, const gtsam::Point3& angularVelocity,
+      double satClkDriftTarget, double satClkDriftRef,
+      const gtsam::noiseModel::Base* model);
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              gtsam::Vector velocity) const;
+  gtsam::Point3 leverArm() const;
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+};
+
 #include <gtsam/navigation/BarometricFactor.h>
 virtual class BarometricFactor : gtsam::NonlinearFactor {
   BarometricFactor();

@@ -262,4 +262,179 @@ Vector DopplerFactorArm::evaluateError(
   return Vector1(error);
 }
 
+//***************************************************************************
+// SingleDifferenceDopplerFactor
+//***************************************************************************
+namespace {
+// Geometry shared by the single-difference constructors. Returns the
+// velocity-independent part of (h_target - h_ref) and the coefficient the
+// receiver velocity enters it with; both satellites are handled with the same
+// Sagnac-aware line of sight the undifferenced factors use.
+void initSingleDifferenceGeometry(
+    const Point3& satPosTarget, const Point3& satVelTarget,
+    const Point3& satPosRef, const Point3& satVelRef,
+    const Point3& receiverPosition, double satClkDriftTarget,
+    double satClkDriftRef, double measRangeRateDiff, double& offset,
+    Point3& velCoeff) {
+  Point3 eTarget, eRef;
+  gnss::geodist(satPosTarget, receiverPosition, eTarget);
+  gnss::geodist(satPosRef, receiverPosition, eRef);
+
+  const double k = OMGE / C_LIGHT;
+  const double sagnacOffsetTarget =
+      k * (satVelTarget.y() * receiverPosition.x() -
+           satVelTarget.x() * receiverPosition.y());
+  const double sagnacOffsetRef =
+      k * (satVelRef.y() * receiverPosition.x() -
+           satVelRef.x() * receiverPosition.y());
+  const Point3 velSagnacTarget(k * satPosTarget.y(), -k * satPosTarget.x(), 0.0);
+  const Point3 velSagnacRef(k * satPosRef.y(), -k * satPosRef.x(), 0.0);
+
+  offset = eTarget.dot(satVelTarget) - eRef.dot(satVelRef) +
+           sagnacOffsetTarget - sagnacOffsetRef -
+           C_LIGHT * (satClkDriftTarget - satClkDriftRef) - measRangeRateDiff;
+  velCoeff = (velSagnacTarget - velSagnacRef) - (eTarget - eRef);
+}
+}  // namespace
+
+SingleDifferenceDopplerFactor::SingleDifferenceDopplerFactor(
+    const Key velocityKey, const double measuredDopplerTarget,
+    const double measuredDopplerRef, const double wavelengthTarget,
+    const double wavelengthRef, const Point3& satPosTarget,
+    const Point3& satVelTarget, const Point3& satPosRef,
+    const Point3& satVelRef, const Point3& receiverPosition,
+    const double satClkDriftTarget, const double satClkDriftRef,
+    const SharedNoiseModel& model)
+    : Base(model, velocityKey) {
+  const double measRangeRateDiff =
+      -wavelengthTarget * measuredDopplerTarget + wavelengthRef * measuredDopplerRef;
+  initSingleDifferenceGeometry(satPosTarget, satVelTarget, satPosRef, satVelRef,
+                               receiverPosition, satClkDriftTarget,
+                               satClkDriftRef, measRangeRateDiff, offset_,
+                               velCoeff_);
+}
+
+//***************************************************************************
+void SingleDifferenceDopplerFactor::print(
+    const std::string& s, const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(offset_, "velocity-independent error (m/s): ");
+  gtsam::print(Vector(velCoeff_), "velocity coefficient: ");
+}
+
+//***************************************************************************
+bool SingleDifferenceDopplerFactor::equals(const NonlinearFactor& expected,
+                                           double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  return e != nullptr && Base::equals(*e, tol) &&
+         traits<double>::Equals(offset_, e->offset_, tol) &&
+         traits<Point3>::Equals(velCoeff_, e->velCoeff_, tol);
+}
+
+//***************************************************************************
+Vector SingleDifferenceDopplerFactor::evaluateError(
+    const Vector3& velocity, OptionalMatrixType Hvelocity) const {
+  if (Hvelocity) *Hvelocity = Vector3(velCoeff_).transpose();
+  return Vector1(offset_ + Vector3(velCoeff_).dot(velocity));
+}
+
+//***************************************************************************
+// SingleDifferenceDopplerFactorArm
+//***************************************************************************
+SingleDifferenceDopplerFactorArm::SingleDifferenceDopplerFactorArm(
+    const Key poseKey, const Key velocityKey,
+    const double measuredDopplerTarget, const double measuredDopplerRef,
+    const double wavelengthTarget, const double wavelengthRef,
+    const Point3& satPosTarget, const Point3& satVelTarget,
+    const Point3& satPosRef, const Point3& satVelRef,
+    const Point3& receiverPosition, const Point3& leverArm,
+    const Point3& angularVelocity, const double satClkDriftTarget,
+    const double satClkDriftRef, const SharedNoiseModel& model)
+    : Base(model, poseKey, velocityKey), arm_(leverArm) {
+  const double measRangeRateDiff =
+      -wavelengthTarget * measuredDopplerTarget + wavelengthRef * measuredDopplerRef;
+  initSingleDifferenceGeometry(satPosTarget, satVelTarget, satPosRef, satVelRef,
+                               receiverPosition, satClkDriftTarget,
+                               satClkDriftRef, measRangeRateDiff, offset_,
+                               velCoeff_);
+  leverVel_ = angularVelocity.cross(leverArm);
+}
+
+SingleDifferenceDopplerFactorArm::SingleDifferenceDopplerFactorArm(
+    const Key poseKey, const Key velocityKey,
+    const double measuredDopplerTarget, const double measuredDopplerRef,
+    const double wavelengthTarget, const double wavelengthRef,
+    const Point3& satPosTarget, const Point3& satVelTarget,
+    const Point3& satPosRef, const Point3& satVelRef,
+    const Point3& receiverPosition, const Point3& leverArm,
+    const Pose3& ecef_T_nav, const Point3& angularVelocity,
+    const double satClkDriftTarget, const double satClkDriftRef,
+    const SharedNoiseModel& model)
+    : Base(model, poseKey, velocityKey), arm_(leverArm, ecef_T_nav) {
+  const double measRangeRateDiff =
+      -wavelengthTarget * measuredDopplerTarget + wavelengthRef * measuredDopplerRef;
+  initSingleDifferenceGeometry(satPosTarget, satVelTarget, satPosRef, satVelRef,
+                               receiverPosition, satClkDriftTarget,
+                               satClkDriftRef, measRangeRateDiff, offset_,
+                               velCoeff_);
+  leverVel_ = angularVelocity.cross(leverArm);
+}
+
+//***************************************************************************
+void SingleDifferenceDopplerFactorArm::print(
+    const std::string& s, const KeyFormatter& keyFormatter) const {
+  Base::print(s, keyFormatter);
+  gtsam::print(offset_, "velocity-independent error (m/s): ");
+  gtsam::print(Vector(velCoeff_), "velocity coefficient: ");
+  gtsam::print(Vector(arm_.b), "lever arm (body m): ");
+  gtsam::print(Vector(leverVel_), "lever velocity omega x b (m/s): ");
+  if (arm_.ecef_T_nav) arm_.ecef_T_nav->print("ecef_T_nav: ");
+}
+
+//***************************************************************************
+bool SingleDifferenceDopplerFactorArm::equals(const NonlinearFactor& expected,
+                                              double tol) const {
+  const This* e = dynamic_cast<const This*>(&expected);
+  return e != nullptr && Base::equals(*e, tol) &&
+         traits<double>::Equals(offset_, e->offset_, tol) &&
+         traits<Point3>::Equals(velCoeff_, e->velCoeff_, tol) &&
+         arm_.equals(e->arm_, tol) &&
+         traits<Point3>::Equals(leverVel_, e->leverVel_, tol);
+}
+
+//***************************************************************************
+Vector SingleDifferenceDopplerFactorArm::evaluateError(
+    const Pose3& pose, const Vector3& velocity, OptionalMatrixType Hpose,
+    OptionalMatrixType Hvelocity) const {
+  // Antenna velocity, exactly as DopplerFactorArm builds it.
+  Matrix3 Hrot;
+  Matrix3 Rvel = I_3x3;
+  Point3 leverVelEcef;
+  Vector3 velEcef;
+  if (arm_.ecef_T_nav) {
+    Matrix3 Hinner;
+    const Point3 vNav = pose.rotation().rotate(leverVel_, Hinner);
+    Rvel = arm_.ecef_T_nav->rotation().matrix();
+    leverVelEcef = arm_.ecef_T_nav->rotation().rotate(vNav);
+    Hrot = Rvel * Hinner;
+    velEcef = Rvel * velocity;
+  } else {
+    leverVelEcef = pose.rotation().rotate(leverVel_, Hrot);
+    velEcef = velocity;
+  }
+  const Vector3 vAnt = velEcef + Vector3(leverVelEcef);
+  const Vector3 g = Vector3(velCoeff_);
+
+  if (Hpose) {
+    // The line of sight uses the fixed nominal position, so only the attitude
+    // block is non-zero. Pose3 tangent order is [rotation(3), translation(3)].
+    Matrix16 H = Matrix16::Zero();
+    H.block<1, 3>(0, 0) = g.transpose() * Hrot;
+    *Hpose = H;
+  }
+  if (Hvelocity) *Hvelocity = g.transpose() * Rvel;
+
+  return Vector1(offset_ + g.dot(vAnt));
+}
+
 }  // namespace gtsam
