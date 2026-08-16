@@ -1,0 +1,149 @@
+# Fork automation: keep custom/develop in sync with borglab/gtsam develop
+# (carrying the NHC + SD Doppler factors) and publish Linux wheels to a
+# rolling GitHub release whenever upstream moved or on manual dispatch.
+#
+# Merge conflicts are NOT auto-resolved: the sync job fails loudly and the
+# branch is left untouched — resolve locally, push, and re-run.
+
+name: Sync Upstream & Build Custom Wheels
+
+on:
+  schedule:
+    - cron: "0 18 * * 1"   # weekly, Monday 18:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Merge upstream develop
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+      changed: ${{ steps.merge.outputs.changed }}
+    steps:
+      - name: Checkout custom/develop
+        uses: actions/checkout@v6
+        with:
+          ref: custom/develop
+          fetch-depth: 0
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/borglab/gtsam.git
+          git fetch upstream develop
+          before=$(git rev-parse HEAD)
+          if ! git merge --no-edit upstream/develop; then
+            echo "::error::Merge conflict with upstream/develop — resolve on custom/develop locally and push:"
+            git diff --name-only --diff-filter=U | sed 's/^/::error::  /'
+            exit 1
+          fi
+          after=$(git rev-parse HEAD)
+          if [ "$before" != "$after" ]; then
+            git push origin custom/develop
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$after" >> "$GITHUB_OUTPUT"
+
+  build_wheels:
+    name: Build wheels (cp${{ matrix.cibw_python_version }})
+    needs: sync
+    # Build when upstream moved, or always on manual dispatch.
+    if: needs.sync.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python_version: "3.11"
+            cibw_python_version: 311
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux2014
+          - python_version: "3.12"
+            cibw_python_version: 312
+            platform_id: manylinux_x86_64
+            manylinux_image: manylinux_2_28
+    steps:
+      - name: Checkout merged custom/develop
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.sha }}
+
+      - name: Set up Python ${{ matrix.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      # DEVELOP + TIMESTAMP feed GTSAM_VERSION_STRING, same as build-cibw.yml.
+      - name: Set version flags
+        run: |
+          echo "DEVELOP=1" >> $GITHUB_ENV
+          echo "TIMESTAMP=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install -r python/dev_requirements.txt
+          sudo apt update
+          sudo apt-get install -y libicu-dev python3-pip python3-setuptools libboost-all-dev ninja-build
+
+      - name: Run CMake
+        run: |
+          cmake -B build -G Ninja -DGTSAM_BUILD_PYTHON=1 -DGTSAM_PYTHON_VERSION=${{ matrix.python_version }}
+
+      - name: Build and test wheels
+        env:
+          CIBW_BUILD: cp${{ matrix.cibw_python_version }}-${{ matrix.platform_id }}
+          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux_image }}
+          CIBW_ARCHS: all
+          CIBW_ENVIRONMENT_PASS_LINUX: DEVELOP TIMESTAMP
+          CIBW_BUILD_FRONTEND: "build"
+          CIBW_BEFORE_ALL: bash .github/scripts/python_wheels/cibw_before_all.sh ${{ matrix.python_version }} {project}
+          CIBW_BUILD_VERBOSITY: 1
+        run: bash .github/scripts/python_wheels/build_wheels.sh
+
+      - name: Smoke test wheel
+        run: |
+          python3 -m pip install wheelhouse/*.whl
+          python3 -c "import gtsam; gtsam.SingleDifferenceDopplerFactorArm; gtsam.NhcFactor; print('custom factors OK,', gtsam.__file__)"
+
+      - name: Store artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: custom-wheels-cp${{ matrix.cibw_python_version }}
+          path: wheelhouse/*.whl
+
+  release:
+    name: Update rolling release
+    needs: [sync, build_wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for gh)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.sha }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Upload wheels to rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=custom-wheels-latest
+          title="Custom wheels (develop + NHC + SD Doppler)"
+          notes="Built from custom/develop @ ${{ needs.sync.outputs.sha }} on $(date -u +'%Y-%m-%d %H:%M UTC'). Linux x86_64, cp311/cp312."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes "$notes" --prerelease
+          else
+            gh release create "$tag" --title "$title" --notes "$notes" --prerelease --target custom/develop
+          fi
+          gh release upload "$tag" dist/*.whl --clobber
