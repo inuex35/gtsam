@@ -13,6 +13,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/iostream.h>
+#include "python/gtsam/optional_jacobian_pybind.h"
 #include "gtsam/base/serialization.h"
 #include "gtsam/base/utilities.h"  // for RedirectCout.
 
@@ -57,14 +58,24 @@ using namespace std;
 
 namespace py = pybind11;
 
-PYBIND11_MODULE({module_name}, m_) {{
+{submodules}
+
+{declaration_module_def} {{
+{wrapped_declarations}
+}}
+
+{binding_module_def} {{
+{wrapped_bindings}
+
+#include "python/gtsam_unstable/specializations/gtsam_unstable.h"
+}}
+
+{module_def} {{
     m_.doc() = "pybind11 wrapper of {module_name}";
 
     // Note here we need to import the dependent library
     py::module::import("gtsam");
 
-{wrapped_namespace}
-
-#include "python/gtsam_unstable/specializations/gtsam_unstable.h"
+{module_init}
 
 }}

@@ -27,7 +27,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/linear/Sampler.h>
-#include <gtsam/linear/TernaryJacobianFactor.h>
+#include <gtsam/linear/FixedJacobianFactor.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ScenarioRunner.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
@@ -95,6 +95,7 @@ TEST_PIM(ImuFactor, PreintegratedMeasurementsReset) {
 }
 
 /* ************************************************************************* */
+// Checks propagated sensor-noise covariance against sampled NavState errors.
 TEST(ImuFactor, Accelerating) {
   const double a = 0.2, v = 50;
 
@@ -107,14 +108,21 @@ TEST(ImuFactor, Accelerating) {
   const AcceleratingScenario scenario(nRb, initial_position, initial_velocity,
       Vector3(a, 0, 0));
 
-  const double T = 3.0; // seconds
-  ScenarioRunner runner(scenario, testing::Params(), T / 10);
+  const double T = 3.0;  // seconds
+  auto params = testing::Params();
+  // ScenarioRunner samples accelerometer and gyroscope noise, but not the
+  // independent position-integration uncertainty.
+  params->integrationCovariance = Z_3x3;
+  ScenarioRunner runner(scenario, params, T / 10);
 
   PreintegratedImuMeasurements pim = runner.integrate(T);
   EXPECT(assert_equal(scenario.pose(T), runner.predict(pim).pose(), 1e-9));
 
-  Matrix9 estimatedCov = runner.estimateCovariance(T, 100);
-  EXPECT(assert_equal(estimatedCov, pim.preintMeasCov(), 0.1));
+  const Matrix9 estimatedCov = runner.estimateCovariance(T, 5000);
+  const Matrix9 expectedCov = pim.residualCovariance();
+  const double relativeError =
+      (estimatedCov - expectedCov).norm() / expectedCov.norm();
+  EXPECT(relativeError < 0.12);
 }
 
 /* ************************************************************************* */
@@ -303,7 +311,7 @@ TEST_PIM(ImuFactor2, TernaryLinearizationIsBitwiseIdentical) {
   const auto actual = std::dynamic_pointer_cast<JacobianFactor>(actualBase);
 
   const bool isTernary = static_cast<bool>(
-      std::dynamic_pointer_cast<TernaryJacobianFactor<9, 9, 9, 6>>(actualBase));
+      std::dynamic_pointer_cast<FixedJacobianFactor<9, 9, 9, 6>>(actualBase));
   CHECK(isTernary);
   CHECK(expected);
   CHECK(actual);
@@ -475,7 +483,8 @@ TEST_PIM(ImuFactor, ErrorAndJacobians) {
 
   // Make sure the whitening is done correctly
   Matrix cov = pim.preintMeasCov();
-  Matrix R = RtR(cov.inverse());
+  Eigen::LLT<Matrix> llt(cov.inverse());
+  Matrix R = llt.matrixU();
   Vector whitened = R * expectedError;
   EXPECT(assert_equal(0.5 * whitened.squaredNorm(), factor.error(values), 1e-4));
 
@@ -723,8 +732,13 @@ TEST_PIM(ImuFactor, ErrorWithBiasesAndSensorBodyDisplacement) {
   values.insert(V(2), v2);
   values.insert(B(1), bias);
 
-  // Make sure linearization is correct
-  double diffDelta = 1e-8;
+  // Make sure linearization is correct. Quaternion finite differences need a
+  // larger step to avoid roundoff at the strict Jacobian tolerance on Linux.
+#ifdef GTSAM_USE_QUATERNIONS
+  constexpr double diffDelta = 1e-7;
+#else
+  constexpr double diffDelta = 1e-8;
+#endif
   EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, diffDelta, 1e-3);
 }
 

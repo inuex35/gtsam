@@ -365,6 +365,19 @@ class GTSAM_EXPORT MultifrontalClique {
   /// contribution.
   void updateParentInfo(SymmetricBlockMatrix& parentInfo) const;
 
+#ifdef GTSAM_USE_TBB
+  /// Accumulate one ordinary separator block into its owned parent column.
+  void updateParentMaterializedColumn(SymmetricBlockMatrix& parentInfo,
+                                      DenseIndex sourceSeparatorBlock) const;
+
+  /// Accumulate one QR separator block into narrow owned-column scratch.
+  void updateParentQrColumnScratch(DenseIndex sourceSeparatorBlock,
+                                   Matrix* scratch) const;
+
+  /// Return the augmented-RHS diagonal from a column-owned child update.
+  double parentRhsDiagonal() const;
+#endif
+
   /// Update a separator-local information matrix without parent scattering.
   void updateSeparatorInfo(SymmetricBlockMatrix& separatorInfo) const;
 
@@ -382,6 +395,12 @@ class GTSAM_EXPORT MultifrontalClique {
                            const std::vector<DenseIndex>& targetIndices,
                            const std::vector<DenseIndex>& targetScalarOffsets,
                            bool useParentMappedSlots) const;
+
+  /// Dispatch one Cholesky representation into a mapped destination.
+  void updateCholeskyInfo(SymmetricBlockMatrix& targetInfo,
+                          const std::vector<DenseIndex>& targetIndices,
+                          const std::vector<DenseIndex>& targetBlockOffsets,
+                          bool useParentMappedSlots) const;
 
   /// Add the original separator normal equations directly into the parent.
   void updateDirectFactors(SymmetricBlockMatrix& targetInfo,
@@ -456,6 +475,8 @@ class GTSAM_EXPORT MultifrontalClique {
   std::vector<DenseIndex>
       parentScalarOffsets_;  ///< Cached scalar offsets for parent blocks.
   std::vector<DenseIndex> separatorIndices_;  ///< Identity separator mapping.
+  std::vector<DenseIndex>
+      separatorScalarOffsets_;  ///< Cached separator-local scalar offsets.
   SolveMode solveMode_ = SolveMode::Cholesky;
   SolveMode starFallbackMode_ = SolveMode::Cholesky;
   /// Whether one automatic-QR star awaits inspection of its sole factor.
@@ -468,6 +489,11 @@ class GTSAM_EXPORT MultifrontalClique {
   std::vector<std::vector<DenseIndex>> sameSeparatorParentScalarOffsets_;
   std::vector<SymmetricBlockMatrix> sameSeparatorInfos_;
   std::vector<uint8_t> childInSameSeparatorGroup_;
+
+#ifdef GTSAM_USE_TBB
+  struct ParentGatherPlan;
+  std::shared_ptr<ParentGatherPlan> parentGatherPlan_;
+#endif
 
   // Lazily allocated after load-plan construction. Direct batch factors need
   // no rows; QR additionally reserves frontal damping rows.

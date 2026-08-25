@@ -58,6 +58,9 @@
 | [VisualISAMExample](VisualISAMExample.ipynb) | :heavy_check_mark: |
 
 Extra Examples (with no C++ equivalent)
+- [Fast CPU bundle adjustment with Full and Schur](SfmLevenbergMarquardtOptimizerExample.ipynb)
+- [CardinalSplineBasisExample](CardinalSplineBasisExample.ipynb)
+- [CumulativeSplineTrajectoryExample](CumulativeSplineTrajectoryExample.ipynb)
 - [FitBasisExample](FitBasisExample.ipynb)
 - [PseudoSpectralChebyshevExample](PseudoSpectralChebyshevExample.ipynb)
 - [DogLegOptimizerExample](DogLegOptimizerExample.ipynb)

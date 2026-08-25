@@ -71,7 +71,7 @@ std::optional<Vector> checkIfDiagonal(const Matrix& M) {
 
 /* ************************************************************************* */
 Vector Base::sigmas() const {
-  throw("Base::sigmas: sigmas() not implemented for this noise model");
+  throw runtime_error("Base::sigmas: sigmas() not implemented for this noise model");
 }
 
 /* ************************************************************************* */
@@ -168,7 +168,7 @@ Vector Gaussian::whiten(const Vector& v) const {
 
 /* ************************************************************************* */
 Vector Gaussian::unwhiten(const Vector& v) const {
-  return backSubstituteUpper(thisR(), v);
+  return thisR().triangularView<Eigen::Upper>().solve(v);
 }
 
 void Gaussian::unwhitenInPlace(Vector& v) const {
@@ -341,11 +341,11 @@ void Diagonal::unwhitenInPlace(Vector& v) const {
 }
 
 Matrix Diagonal::Whiten(const Matrix& H) const {
-  return vector_scale(invsigmas(), H);
+  return (H.array().colwise() * invsigmas().array()).matrix();
 }
 
 void Diagonal::WhitenInPlace(Matrix& H) const {
-  vector_scale_inplace(invsigmas(), H);
+  H.array().colwise() *= invsigmas().array();
 }
 
 void Diagonal::WhitenInPlace(Eigen::Block<Matrix> H) const {
