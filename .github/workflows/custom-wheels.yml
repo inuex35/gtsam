@@ -4,6 +4,11 @@
 #
 # Merge conflicts are NOT auto-resolved: the sync job fails loudly and the
 # branch is left untouched — resolve locally, push, and re-run.
+#
+# The sync job needs the SYNC_PAT secret: upstream merges routinely touch
+# .github/workflows/, and the default GITHUB_TOKEN is never allowed to push
+# workflow files. Use a fine-grained PAT on this repo with
+# Contents: write + Workflows: write.
 
 name: Sync Upstream & Build Custom Wheels
 
@@ -23,11 +28,22 @@ jobs:
       sha: ${{ steps.merge.outputs.sha }}
       changed: ${{ steps.merge.outputs.changed }}
     steps:
+      - name: Check push credentials
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          if [ -z "$SYNC_PAT" ]; then
+            echo "::error::SYNC_PAT secret is not set — the default GITHUB_TOKEN cannot push .github/workflows/ changes. Create a fine-grained PAT on this repo (Contents: write, Workflows: write) and add it as the SYNC_PAT secret."
+            exit 1
+          fi
+
       - name: Checkout custom/develop
         uses: actions/checkout@v6
         with:
           ref: custom/develop
           fetch-depth: 0
+          # Pushes workflow-file changes, which GITHUB_TOKEN may not do.
+          token: ${{ secrets.SYNC_PAT }}
 
       - name: Merge upstream
         id: merge
