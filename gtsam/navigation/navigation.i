@@ -1008,11 +1008,11 @@ virtual class SingleDifferenceDopplerFactor : gtsam::NonlinearFactor {
                                 const gtsam::Point3& receiverPosition,
                                 double satClkDriftTarget, double satClkDriftRef,
                                 const gtsam::noiseModel::Base* model);
-  gtsam::Vector evaluateError(gtsam::Vector velocity) const;
+  gtsam::Vector evaluateError(const gtsam::Vector3& velocity) const;
   double offset() const;
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
                                 gtsam::DefaultKeyFormatter) const;
-  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
 };
 
 virtual class SingleDifferenceDopplerFactorArm : gtsam::NonlinearFactor {
@@ -1034,11 +1034,11 @@ virtual class SingleDifferenceDopplerFactorArm : gtsam::NonlinearFactor {
       double satClkDriftTarget, double satClkDriftRef,
       const gtsam::noiseModel::Base* model);
   gtsam::Vector evaluateError(const gtsam::Pose3& pose,
-                              gtsam::Vector velocity) const;
-  gtsam::Point3 leverArm() const;
+                              const gtsam::Vector3& velocity) const;
+  const gtsam::Point3& leverArm() const;
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
                                 gtsam::DefaultKeyFormatter) const;
-  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
 };
 
 #include <gtsam/navigation/BarometricFactor.h>
@@ -1400,15 +1400,15 @@ virtual class NhcFactor : gtsam::NoiseModelFactor {
   // Testable
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
                                 gtsam::DefaultKeyFormatter) const;
-  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
 
   // Standard Interface
   gtsam::Vector evaluateError(const gtsam::Pose3& pose,
                               const gtsam::Vector3& velocity) const;
-  gtsam::Vector3 gyro() const;
-  gtsam::Vector3 leverArm() const;
+  const gtsam::Vector3& gyro() const;
+  const gtsam::Vector3& leverArm() const;
   double wheelSpeed() const;
-  gtsam::Vector3 mountAngle() const;
+  const gtsam::Vector3& mountAngle() const;
 };
 
 virtual class NhcFactorCalib : gtsam::NoiseModelFactor {
@@ -1420,14 +1420,14 @@ virtual class NhcFactorCalib : gtsam::NoiseModelFactor {
   // Testable
   void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
                                 gtsam::DefaultKeyFormatter) const;
-  bool equals(const gtsam::NonlinearFactor& expected, double tol);
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
 
   // Standard Interface
   gtsam::Vector evaluateError(const gtsam::Pose3& pose,
                               const gtsam::Vector3& velocity,
                               const gtsam::Vector3& mountAngle) const;
-  gtsam::Vector3 gyro() const;
-  gtsam::Vector3 leverArm() const;
+  const gtsam::Vector3& gyro() const;
+  const gtsam::Vector3& leverArm() const;
   double wheelSpeed() const;
 };
 }
