@@ -1,0 +1,6 @@
+# Canonical identity mapping.
+#
+# Commits already merged into borglab/gtsam were authored with a work
+# address that cannot be rewritten there. Map it to the canonical personal
+# address so git log, shortlog and blame report a single contributor.
+inuex35 <inuex3@yahoo.co.jp> <kosuke.inoue@turing-motors.com>
