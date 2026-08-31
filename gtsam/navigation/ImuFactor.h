@@ -86,10 +86,10 @@ protected:
 
 public:
 
-  /// Default constructor for serialization and wrappers
-  PreintegratedImuMeasurementsT() {
-    this->resetIntegration();
-  }
+  /// Default constructor with default preintegration parameters.
+  PreintegratedImuMeasurementsT()
+      : PreintegratedImuMeasurementsT(
+            std::make_shared<PreintegrationParams>()) {}
 
  /**
    *  Constructor, initializes the class with no measurements
@@ -139,10 +139,6 @@ public:
   void integrateMeasurement(const Vector3& measuredAcc,
       const Vector3& measuredOmega, const double dt) override;
 
-  /// Add multiple measurements, in matrix columns
-  void integrateMeasurements(const Matrix& measuredAccs, const Matrix& measuredOmegas,
-                             const Matrix& dts);
-
   /// Return pre-integrated measurement covariance
   Matrix preintMeasCov() const { return preintMeasCov_; }
 
@@ -159,10 +155,10 @@ public:
    * \qquad \Delta R=\operatorname{Exp}(\theta),
    * \f]
    * where \f$J_r\f$ is the SO(3) right Jacobian. Therefore its covariance is
-   * converted as \f$J P J^T\f$. ManifoldPreintegration and
-   * LieGroupPreintegration already propagate covariance in the residual chart
-   * and return it unchanged. This conversion does not redefine the nonlinear
-   * residual or alter the raw covariance returned by preintMeasCov().
+   * converted as \f$J P J^T\f$. Other backends already propagate covariance
+   * in the residual chart and return it unchanged. This conversion does not
+   * redefine the nonlinear residual or alter the raw covariance returned by
+   * preintMeasCov().
    */
   Matrix9 residualCovariance() const {
     if constexpr (std::is_same_v<PreintegrationType,
@@ -219,13 +215,15 @@ using PreintegratedImuMeasurements = PreintegratedImuMeasurementsT<DefaultPreint
  * @ingroup navigation
  */
 template <class PIM = PreintegratedImuMeasurements>
-class GTSAM_EXPORT ImuFactorT: public NoiseModelFactorN<Pose3, Vector3, Pose3, Vector3,
-    imuBias::ConstantBias> {
+class GTSAM_EXPORT ImuFactorT
+    : public NoiseModelFactorT<Vector9, Pose3, Vector3, Pose3, Vector3,
+                               imuBias::ConstantBias> {
 private:
 
   typedef ImuFactorT<PIM> This;
-  typedef NoiseModelFactorN<Pose3, Vector3, Pose3, Vector3,
-      imuBias::ConstantBias> Base;
+  typedef NoiseModelFactorT<Vector9, Pose3, Vector3, Pose3, Vector3,
+                            imuBias::ConstantBias>
+      Base;
 
   PIM pim_;
 
@@ -282,10 +280,12 @@ public:
   /** implement functions needed to derive from Factor */
 
   /// vector of errors
-  Vector evaluateError(const Pose3& pose_i, const Vector3& vel_i,
-      const Pose3& pose_j, const Vector3& vel_j,
-      const imuBias::ConstantBias& bias_i, OptionalMatrixType H1, OptionalMatrixType H2,
-      OptionalMatrixType H3, OptionalMatrixType H4, OptionalMatrixType H5) const override;
+  Vector9 evaluateError(const Pose3& pose_i, const Vector3& vel_i,
+                        const Pose3& pose_j, const Vector3& vel_j,
+                        const imuBias::ConstantBias& bias_i,
+                        OptionalMatrixType H1, OptionalMatrixType H2,
+                        OptionalMatrixType H3, OptionalMatrixType H4,
+                        OptionalMatrixType H5) const override;
 
   /// Merge two pre-integrated measurement classes
   template <typename MethodPIMArg = PIM,
