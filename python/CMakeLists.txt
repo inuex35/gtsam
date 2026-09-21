@@ -26,6 +26,7 @@ macro(SET_PYTHON_TARGET_PROPERTIES PYTHON_TARGET OUTPUT_NAME OUTPUT_DIRECTORY)
         LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIRECTORY}"
         DEBUG_POSTFIX "" # Otherwise you will have a wrong name
         RELWITHDEBINFO_POSTFIX "" # Otherwise you will have a wrong name
+        MINSIZEREL_POSTFIX "" # Otherwise you will have a wrong name
         TIMING_POSTFIX "" # Otherwise you will have a wrong name
         PROFILING_POSTFIX "" # Otherwise you will have a wrong name
     )
@@ -130,6 +131,11 @@ if(GTSAM_USE_MOSEK)
     list(APPEND interface_headers
         ${PROJECT_SOURCE_DIR}/gtsam/certifiable/certifiable_mosek.i
     )
+    # Use pybind11's native STL conversions instead of container proxy classes.
+    list(APPEND ignore
+        "std::vector<double>"
+        "std::map<std::string, double>"
+        "std::map<gtsam::Key, gtsam::DenseIndex>")
 endif()
 
 if(GTSAM_ENABLE_CUDA)
