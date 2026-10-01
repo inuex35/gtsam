@@ -118,6 +118,7 @@ message(STATUS "Python toolbox flags                                      ")
 print_enabled_config(${GTSAM_BUILD_PYTHON}                "Build Python module with pybind ")
 if(GTSAM_BUILD_PYTHON)
     print_config("Python version" ${GTSAM_PYTHON_VERSION})
+    print_enabled_config(${GTSAM_PYTHON_INSTALL_EXAMPLE_DATA} "Bundle example data in Python package")
 endif()
 
 message(STATUS "Extra test flags")

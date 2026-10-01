@@ -259,7 +259,10 @@ endforeach()
 
 # Common directory for data/datasets stored with the package.
 # This will store the data in the Python site package directly.
-file(COPY "${GTSAM_SOURCE_DIR}/examples/Data" DESTINATION "${GTSAM_MODULE_PATH}")
+# When disabled, findExampleDataFile uses the source tree or downloads on demand.
+if(GTSAM_PYTHON_INSTALL_EXAMPLE_DATA)
+    file(COPY "${GTSAM_SOURCE_DIR}/examples/Data" DESTINATION "${GTSAM_MODULE_PATH}")
+endif()
 
 # Add gtsam as a dependency to the install target
 set(GTSAM_PYTHON_DEPENDENCIES ${GTSAM_PYTHON_TARGET})
@@ -388,6 +391,7 @@ if(GTSAM_UNSTABLE_BUILD_PYTHON)
         COMMAND
           ${CMAKE_COMMAND} -E env # add package to python path so no need to install
           "PYTHONPATH=${GTSAM_PYTHON_BUILD_DIRECTORY}${GTSAM_PATH_SEPARATOR}$ENV{PYTHONPATH}"
+          "GTSAM_EXAMPLE_DATA_DIR=${GTSAM_SOURCE_DIR}/examples/Data"
         ${PYTHON_EXECUTABLE} -m pytest -v . ${PYTEST_EXTRA_ARGS_LIST}
         DEPENDS ${GTSAM_PYTHON_DEPENDENCIES} ${GTSAM_PYTHON_TEST_FILES}
         WORKING_DIRECTORY "${GTSAM_PYTHON_BUILD_DIRECTORY}/gtsam_unstable/tests"
@@ -447,6 +451,7 @@ add_custom_target(
         COMMAND
           ${CMAKE_COMMAND} -E env # add package to python path so no need to install
           "PYTHONPATH=${GTSAM_PYTHON_BUILD_DIRECTORY}${GTSAM_PATH_SEPARATOR}$ENV{PYTHONPATH}"
+          "GTSAM_EXAMPLE_DATA_DIR=${GTSAM_SOURCE_DIR}/examples/Data"
           ${PYTHON_EXECUTABLE} -m pytest -v . ${PYTEST_EXTRA_ARGS_LIST}
           DEPENDS ${GTSAM_PYTHON_DEPENDENCIES} ${GTSAM_PYTHON_TEST_FILES}
           WORKING_DIRECTORY "${GTSAM_PYTHON_BUILD_DIRECTORY}/gtsam/tests")

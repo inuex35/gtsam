@@ -156,6 +156,23 @@ TODO
 
 TODO
 
+### Example Data
+
+`gtsam.findExampleDataFile(name)` locates the datasets in `examples/Data`. By
+default, a source build copies that directory (about 45 MB) into the Python
+package. Configure with `-DGTSAM_PYTHON_INSTALL_EXAMPLE_DATA=OFF` to leave it
+out; the wheels published to PyPI are built this way. Without bundled data,
+`findExampleDataFile` searches, in order:
+
+1. the directory given by the `GTSAM_EXAMPLE_DATA_DIR` environment variable,
+2. an `examples/Data` directory in the GTSAM source tree,
+3. the download cache (`$XDG_CACHE_HOME/gtsam/Data`, or `~/.cache/gtsam/Data`;
+   override with `GTSAM_DATA_CACHE_DIR`).
+
+If the file is still not found, it is downloaded from the GTSAM repository
+into the cache. Set `GTSAM_OFFLINE=1` to disable downloading, or
+`GTSAM_EXAMPLE_DATA_URL` to use a different location.
+
 ## Writing Your Own Scripts
 
 See the tests for examples.

@@ -48,7 +48,12 @@ FOOT_COLORS = ("#d62728", "#2ca02c", "#1f77b4", "#ff7f0e")
 
 
 def legged_staircase_dataset_dir() -> Path:
-    return Path(gtsam.findExampleDataFile("legged_staircase/metadata.csv")).parent
+    # Look up every file so that each one is downloaded if not available locally.
+    paths = [
+        Path(gtsam.findExampleDataFile(f"legged_staircase/{name}"))
+        for name in ("metadata.csv", "imu.csv", "contacts.csv")
+    ]
+    return paths[0].parent
 
 
 def load_legged_csv_dataset(dataset_dir: Path | None = None) -> Dict[str, object]:
